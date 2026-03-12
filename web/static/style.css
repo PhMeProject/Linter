@@ -251,16 +251,20 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .change-mark.accepted:hover { background: rgba(52,199,89,.22); }
 
-/* Violation — amber wavy (like spell error) */
-.violation-text {
-  text-decoration-line: underline;
-  text-decoration-style: wavy;
-  text-decoration-color: rgba(255,159,10,.85);
-  text-decoration-skip-ink: none;
+/* Violation badge — small ⚠ icon appended after paragraph text */
+.vio-badge {
+  display: inline-block;
+  margin-left: .3em;
+  font-size: .72em;
+  line-height: 1;
+  vertical-align: super;
+  color: rgba(255,159,10,.95);
   cursor: help;
-  border-radius: 2px;
+  user-select: none;
+  transition: opacity .12s;
+  opacity: .8;
 }
-.violation-text:hover { background: rgba(255,159,10,.06); }
+.vio-badge:hover { opacity: 1; }
 
 /* ── Change / violation tooltip ─────────────────────────────────────── */
 .change-tooltip {

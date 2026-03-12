@@ -210,8 +210,8 @@ function applyChangeToSegments(segments, change, paraIndex) {
         // Keep original word, no mark
         out.push({ text: m[0], type: "plain" });
       } else if (state === "accepted") {
-        // Show replacement with subtle accepted tint
-        out.push({ text: change.replace, type: "accepted", ruleId: change.rule_id });
+        // Accepted: replacement is plain text — underline gone, clean document
+        out.push({ text: change.replace, type: "plain" });
       } else {
         // Pending: show original word with blue wavy underline
         out.push({ text: m[0], type: "pending", ruleId: change.rule_id });
@@ -242,10 +242,11 @@ function buildParaHtml(para) {
     return t;
   }).join("");
 
-  // Step 3: if this paragraph has violations, wrap content in a violation span
-  // (amber wavy underline over the text, tooltip shows the violations)
+  // Step 3: if this paragraph has violations, append a small badge
+  // (a ⚠ icon that shows the violation tooltip on hover, without wrapping the
+  // entire paragraph and interfering with change-mark tooltips)
   if (para.has_violations) {
-    html = `<span class="violation-text" data-para-index="${para.index}">${html}</span>`;
+    html += `<span class="vio-badge" data-para-index="${para.index}" title="">⚠</span>`;
   }
 
   return html;
@@ -270,7 +271,7 @@ function showTooltip(anchor) {
   clearTimeout(_ttHideTimer);
 
   const isChange    = anchor.classList.contains("change-mark");
-  const isViolation = anchor.classList.contains("violation-text");
+  const isViolation = anchor.classList.contains("vio-badge");
   const paraIndex   = +anchor.dataset.paraIndex;
   const para        = reportData?.paragraphs.find(p => p.index === paraIndex);
   if (!para) return;
@@ -339,15 +340,15 @@ function hideTooltip() { _tooltip.hidden = true; }
 
 // Show on hover
 document.addEventListener("mouseover", e => {
-  const t = e.target.closest?.(".change-mark, .violation-text");
+  const t = e.target.closest?.(".change-mark, .vio-badge");
   if (t) { clearTimeout(_ttHideTimer); showTooltip(t); }
 });
 
 // Hide when leaving (unless entering the tooltip itself)
 document.addEventListener("mouseout", e => {
-  const t = e.target.closest?.(".change-mark, .violation-text");
+  const t = e.target.closest?.(".change-mark, .vio-badge");
   if (t && !e.relatedTarget?.closest?.("#change-tooltip")) {
-    _ttHideTimer = setTimeout(hideTooltip, 240);
+    _ttHideTimer = setTimeout(hideTooltip, 400);
   }
 });
 
