@@ -292,27 +292,18 @@ function showTooltip(anchor) {
         <span class="tt-ins">${escapeHtml(change.replace)}</span>
       </div>`;
     }
-    if (state === "accepted") {
-      // Show undo option
-      html += `<div class="tt-actions">
-        <button class="tt-btn tt-undo" data-action="undo" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
-          &#8617; Undo change
-        </button>
-      </div>`;
-    } else {
-      const isPending  = state === "pending";
-      const isRejected = state === "rejected";
-      html += `<div class="tt-actions">
-        <button class="tt-btn tt-keep${isRejected ? " tt-active" : ""}"
-                data-action="reject" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
-          &#10005; Keep original
-        </button>
-        <button class="tt-btn tt-fix${isPending ? "" : (state === "accepted" ? " tt-active" : "")}"
-                data-action="accept" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
-          &#10003; Apply fix
-        </button>
-      </div>`;
-    }
+    // Always show both buttons; highlight whichever state is active
+    const isAcc = state === "accepted";
+    html += `<div class="tt-actions">
+      <button class="tt-btn tt-reject-btn"
+              data-action="reject" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
+        Reject
+      </button>
+      <button class="tt-btn tt-accept-btn${isAcc ? " tt-active" : ""}"
+              data-action="accept" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
+        &#10003; Accept
+      </button>
+    </div>`;
 
   } else if (isViolation) {
     html += `<div class="tt-type">Violation</div>`;
@@ -375,8 +366,6 @@ _tooltip.addEventListener("click", e => {
     accepted.set(acceptedKey(paraIndex, ruleId), true);
   } else if (action === "reject") {
     accepted.set(acceptedKey(paraIndex, ruleId), false);
-  } else if (action === "undo") {
-    accepted.delete(acceptedKey(paraIndex, ruleId)); // back to pending
   }
 
   refreshPara(paraIndex);

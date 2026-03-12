@@ -298,10 +298,9 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   transition: background .12s, color .12s, border-color .12s;
 }
 .tt-btn:hover         { background: rgba(255,255,255,.14); color: #fff; }
-.tt-keep.tt-active    { background: rgba(255,59,48,.28);   color: #fca5a5; border-color: rgba(255,59,48,.4); }
-.tt-fix.tt-active     { background: rgba(52,199,89,.28);   color: #86efac; border-color: rgba(52,199,89,.4); }
-.tt-undo              { background: rgba(255,255,255,.07); }
-.tt-undo:hover        { background: rgba(255,255,255,.18); color: #fff; }
+.tt-reject-btn:hover  { background: rgba(255,59,48,.22);   color: #fca5a5; border-color: rgba(255,59,48,.35); }
+.tt-accept-btn.tt-active { background: rgba(52,199,89,.28); color: #86efac; border-color: rgba(52,199,89,.4); }
+.tt-accept-btn:not(.tt-active):hover { background: rgba(52,199,89,.18); color: #86efac; }
 
 /* ── Loading overlay ─────────────────────────────────────────────────── */
 #loading-overlay {
