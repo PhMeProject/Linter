@@ -65,6 +65,13 @@
         <button class="btn-ghost-sm" id="back-btn">&#8592; Back</button>
         <div class="review-top-summary" id="summary-banner"></div>
         <div class="review-top-actions">
+          <!-- Legend -->
+          <span class="legend">
+            <span class="legend-dot legend-change"></span>Suggested change
+          </span>
+          <span class="legend">
+            <span class="legend-dot legend-violation"></span>Violation
+          </span>
           <button class="btn-ghost-sm" id="accept-all-btn">&#10003; Accept all</button>
           <label class="toggle-label">
             <input type="checkbox" id="show-all-toggle"> Show all
@@ -74,22 +81,9 @@
       </div>
     </div>
 
-    <!-- Two document pages -->
+    <!-- Single document page -->
     <div class="doc-viewer-wrap">
-      <div class="doc-viewer-labels">
-        <div class="doc-viewer-label">Original</div>
-        <div class="doc-viewer-label">Suggested corrections</div>
-      </div>
-      <div class="doc-viewer">
-        <div class="doc-pane" id="original-column"></div>
-        <div class="doc-pane" id="corrected-column"></div>
-      </div>
-    </div>
-
-    <!-- Full-document issues (violations only — no inline fix available) -->
-    <div class="issues-wrap" id="full-doc-issues-wrap" hidden>
-      <div class="issues-header">Full Document Issues</div>
-      <div id="full-doc-issues"></div>
+      <div class="doc-pane" id="document-column"></div>
     </div>
 
   </div>
