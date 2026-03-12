@@ -146,6 +146,11 @@ def lint():
         para_payload.append(
             {
                 "index": idx,
+                "style_name": para.style_name,
+                "font_size": para.font_size,
+                "bold": para.bold,
+                "italic": para.italic,
+                "color_hex": para.color_hex,
                 "original": para.text,
                 "corrected": report.corrected_paragraphs[idx],
                 "has_changes": bool(para_changes),

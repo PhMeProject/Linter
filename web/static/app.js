@@ -4,15 +4,15 @@
 // State
 // ---------------------------------------------------------------------------
 
-let sessionId = null;
-let reportData = null;          // full /lint JSON response
-const accepted = new Map();     // rule_id → boolean (accepted/rejected per para+rule)
+let sessionId  = null;
+let reportData = null;
+const accepted = new Map(); // "paraIndex::ruleId" → boolean
 
 // ---------------------------------------------------------------------------
 // DOM helpers
 // ---------------------------------------------------------------------------
 
-const $  = id => document.getElementById(id);
+const $ = id => document.getElementById(id);
 const el = (tag, cls, html) => {
   const e = document.createElement(tag);
   if (cls)  e.className = cls;
@@ -27,7 +27,6 @@ const el = (tag, cls, html) => {
 const fileInput     = $("file-input");
 const fileDropLabel = $("file-drop-label");
 const submitBtn     = $("submit-btn");
-const uploadError   = $("upload-error");
 const fileDrop      = $("file-drop");
 
 fileInput.addEventListener("change", () => {
@@ -37,20 +36,18 @@ fileInput.addEventListener("change", () => {
     fileDropLabel.classList.add("has-file");
     submitBtn.disabled = false;
   } else {
-    fileDropLabel.textContent = "Click to choose a .docx file";
+    fileDropLabel.textContent = "Drop your file here, or click to browse";
     fileDropLabel.classList.remove("has-file");
     submitBtn.disabled = true;
   }
 });
 
-// Drag-and-drop styling
 fileDrop.addEventListener("dragover",  e => { e.preventDefault(); fileDrop.classList.add("drag-over"); });
 fileDrop.addEventListener("dragleave", () => fileDrop.classList.remove("drag-over"));
-fileDrop.addEventListener("drop",      e => {
+fileDrop.addEventListener("drop", e => {
   e.preventDefault();
   fileDrop.classList.remove("drag-over");
   if (e.dataTransfer.files.length) {
-    // Programmatically assign dropped file to the input
     const dt = new DataTransfer();
     dt.items.add(e.dataTransfer.files[0]);
     fileInput.files = dt.files;
@@ -80,7 +77,7 @@ $("upload-form").addEventListener("submit", async e => {
 });
 
 // ---------------------------------------------------------------------------
-// Review rendering
+// Review – main entry point
 // ---------------------------------------------------------------------------
 
 function renderReview(data) {
@@ -88,7 +85,7 @@ function renderReview(data) {
   sessionId  = data.session_id;
   accepted.clear();
 
-  // Pre-populate accepted map: all changes accepted by default
+  // Pre-accept all changes
   for (const para of data.paragraphs) {
     for (const change of para.changes) {
       accepted.set(acceptedKey(para.index, change.rule_id), true);
@@ -96,7 +93,8 @@ function renderReview(data) {
   }
 
   renderSummary(data);
-  renderParagraphs(data.paragraphs);
+  renderDocColumns(data.paragraphs);
+  renderChangesPanel(data.paragraphs);
 
   $("upload-section").hidden = true;
   $("review-section").hidden = false;
@@ -106,87 +104,134 @@ function acceptedKey(paraIndex, ruleId) {
   return `${paraIndex}::${ruleId}`;
 }
 
-// ── Summary banner ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Summary banner
+// ---------------------------------------------------------------------------
 
 function renderSummary(data) {
   const s = data.summary;
   const banner = $("summary-banner");
-  banner.className = "summary-banner" +
-    (s.violations > 0 ? " has-violations" : s.changes === 0 ? " clean" : "");
 
   const parts = [
     `<span class="summary-stat">
        <span class="pill pill-change">${s.changes}</span>
-       <span class="label">text ${s.changes === 1 ? "change" : "changes"}</span>
+       <span class="label">${s.changes === 1 ? "change" : "changes"}</span>
      </span>`,
     `<span class="summary-stat">
        <span class="pill pill-violation">${s.violations}</span>
-       <span class="label">style ${s.violations === 1 ? "violation" : "violations"}</span>
+       <span class="label">${s.violations === 1 ? "violation" : "violations"}</span>
      </span>`,
   ];
   if (s.changes === 0 && s.violations === 0) {
-    parts.push(`<span class="pill pill-clean">&#10003; Document is clean</span>`);
+    parts.push(`<span class="pill pill-clean">&#10003; Clean</span>`);
   }
-  parts.push(`<span class="label" style="margin-left:auto;color:var(--gray-400)">${data.template_name}</span>`);
+  parts.push(`<span class="template-name">${escapeHtml(data.template_name)}</span>`);
   banner.innerHTML = parts.join("");
 }
 
-// ── Paragraph rows ──────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Document columns
+// ---------------------------------------------------------------------------
 
-function renderParagraphs(paragraphs) {
-  const container = $("paragraphs-container");
-  container.innerHTML = "";
+function renderDocColumns(paragraphs) {
+  const origCol = $("original-column");
+  const corrCol = $("corrected-column");
+  origCol.innerHTML = "";
+  corrCol.innerHTML = "";
 
   for (const para of paragraphs) {
-    container.appendChild(buildParaRow(para));
+    origCol.appendChild(buildDocPara(para, "original"));
+    corrCol.appendChild(buildDocPara(para, "corrected"));
   }
 
-  // "Show unchanged" toggle
   applyUnchangedVisibility();
+  requestAnimationFrame(syncParaHeights);
 }
 
-function buildParaRow(para) {
-  const row = el("div", "para-row");
-  if (!para.has_changes && !para.has_violations) {
-    row.classList.add("unchanged");
-  } else if (para.has_changes) {
-    row.classList.add("changed");
+function buildDocPara(para, side) {
+  const div = document.createElement("div");
+  div.className = "doc-para";
+  div.dataset.paraIndex = para.index;
+  div.dataset.side = side;
+
+  // Apply Word-like styling from document metadata
+  applyDocStyle(div, para);
+
+  if (para.original.trim() === "") {
+    div.innerHTML = "\u00a0";
+    div.classList.add("empty-para");
+  } else if (side === "original") {
+    div.innerHTML = buildOriginalHtml(para);
+    if (para.has_changes)    div.classList.add("changed-orig");
+    if (para.has_violations) div.classList.add("violated");
   } else {
-    row.classList.add("violation");
-  }
-  row.dataset.paraIndex = para.index;
-
-  // Left cell: original with deleted phrases highlighted
-  const leftCell = el("div", "para-cell original");
-  leftCell.dataset.paraIndex = para.index;
-  leftCell.dataset.side = "left";
-  leftCell.innerHTML = buildOriginalHtml(para);
-
-  // Right cell: corrected with inserted phrases highlighted
-  const rightCell = el("div", "para-cell corrected");
-  rightCell.dataset.paraIndex = para.index;
-  rightCell.dataset.side = "right";
-  rightCell.innerHTML = buildCorrectedHtml(para);
-
-  row.appendChild(leftCell);
-  row.appendChild(rightCell);
-
-  // Change controls (accept / reject checkboxes)
-  if (para.changes.length > 0) {
-    row.appendChild(buildChangeControls(para));
+    div.innerHTML = buildCorrectedHtml(para);
+    if (para.has_changes)    div.classList.add("changed-corr");
+    if (para.has_violations) div.classList.add("violated");
   }
 
-  // Violation list
-  if (para.violations.length > 0) {
-    row.appendChild(buildViolationList(para.violations));
+  if (!para.has_changes && !para.has_violations) {
+    div.classList.add("unchanged");
   }
 
-  return row;
+  return div;
 }
 
-// Build the HTML for the original cell, highlighting accepted `find` phrases.
+function applyDocStyle(div, para) {
+  const styleName = para.style_name || "Normal";
+
+  // Map Word style names → CSS class
+  if      (/^Title$/i.test(styleName))              div.classList.add("doc-style-title");
+  else if (/^Heading\s*1$/i.test(styleName))        div.classList.add("doc-style-h1");
+  else if (/^Heading\s*2$/i.test(styleName))        div.classList.add("doc-style-h2");
+  else if (/^Heading\s*3$/i.test(styleName))        div.classList.add("doc-style-h3");
+  else if (/^Heading\s*[4-9]$/i.test(styleName))   div.classList.add("doc-style-h4");
+  else                                               div.classList.add("doc-style-body");
+
+  // Inline style overrides (body text only; headings are handled by CSS)
+  const isHeading = /^(Title|Heading)/i.test(styleName);
+  const parts = [];
+
+  if (!isHeading && para.font_size) {
+    // Convert pt → px and scale slightly (Word 11pt ≈ browser 14px, we scale to ~13px)
+    const px = Math.round(para.font_size * 1.25);
+    if (px > 8 && px < 28) parts.push(`font-size: ${px}px`);
+  }
+  if (para.bold   === true  && !isHeading) parts.push("font-weight: 700");
+  if (para.italic === true)                parts.push("font-style: italic");
+  if (para.color_hex)                      parts.push(`color: #${para.color_hex}`);
+
+  if (parts.length) div.setAttribute("style", parts.join("; "));
+}
+
+// Sync min-heights so corresponding left/right paragraphs stay aligned
+function syncParaHeights() {
+  const origParas = [...document.querySelectorAll("#original-column .doc-para")];
+  const corrParas = [...document.querySelectorAll("#corrected-column .doc-para")];
+
+  // Reset
+  origParas.forEach(e => e.style.minHeight = "");
+  corrParas.forEach(e => e.style.minHeight = "");
+
+  // Apply
+  origParas.forEach((e, i) => {
+    const c = corrParas[i];
+    if (!c) return;
+    const h = Math.max(e.offsetHeight, c.offsetHeight);
+    e.style.minHeight = h + "px";
+    c.style.minHeight = h + "px";
+  });
+}
+
+// Re-sync on window resize
+const _resizeObs = new ResizeObserver(() => syncParaHeights());
+_resizeObs.observe(document.body);
+
+// ---------------------------------------------------------------------------
+// Build paragraph HTML
+// ---------------------------------------------------------------------------
+
 function buildOriginalHtml(para) {
-  if (para.original.trim() === "") return "<em style='color:var(--gray-400)'>—</em>";
   let html = escapeHtml(para.original);
   for (const change of para.changes) {
     if (isAccepted(para.index, change.rule_id) && change.find) {
@@ -196,12 +241,8 @@ function buildOriginalHtml(para) {
   return html;
 }
 
-// Build the HTML for the corrected cell.  Re-applies accepted substitutions
-// to the original text client-side so the live preview updates on toggle.
 function buildCorrectedHtml(para) {
-  if (para.original.trim() === "") return "<em style='color:var(--gray-400)'>—</em>";
-
-  // Re-compute corrected text from original with only accepted rules
+  // Re-apply accepted substitutions client-side for live preview
   let text = para.original;
   for (const change of para.changes) {
     if (isAccepted(para.index, change.rule_id) && change.find) {
@@ -218,8 +259,32 @@ function buildCorrectedHtml(para) {
   return html;
 }
 
-function buildChangeControls(para) {
-  const wrap = el("div", "para-changes");
+// ---------------------------------------------------------------------------
+// Changes & violations panel
+// ---------------------------------------------------------------------------
+
+function renderChangesPanel(paragraphs) {
+  const panel = $("changes-panel");
+  panel.innerHTML = "";
+
+  for (const para of paragraphs) {
+    if (para.changes.length > 0) {
+      panel.appendChild(buildChangesItem(para));
+    }
+    if (para.violations.length > 0) {
+      panel.appendChild(buildViolationsItem(para.violations));
+    }
+  }
+
+  if (panel.children.length === 0) {
+    const msg = el("div", "clean-msg");
+    msg.innerHTML = `<span class="pill pill-clean">&#10003; No changes or violations found</span>`;
+    panel.appendChild(msg);
+  }
+}
+
+function buildChangesItem(para) {
+  const item = el("div", "change-item");
   for (const change of para.changes) {
     const key = acceptedKey(para.index, change.rule_id);
     const row = el("div", "change-row");
@@ -231,27 +296,28 @@ function buildChangeControls(para) {
     chk.dataset.ruleId    = change.rule_id;
     chk.addEventListener("change", () => {
       accepted.set(key, chk.checked);
-      refreshParaRow(para.index);
+      refreshDocPara(para.index);
     });
 
     const desc = el("label", "change-desc");
-    desc.htmlFor = `chk-${key}`;
-    desc.innerHTML = `<strong>${change.description}</strong>`;
+    desc.innerHTML = `<strong>${escapeHtml(change.description)}</strong>`;
     if (change.find && change.replace) {
-      desc.innerHTML += ` &nbsp;<span style="color:var(--gray-400)">·</span>&nbsp;` +
-        `<mark class="del">${escapeHtml(change.find)}</mark> ` +
-        `&#8594; <mark class="ins">${escapeHtml(change.replace)}</mark>`;
+      desc.innerHTML +=
+        `<span class="arrow-sep">&middot;</span>` +
+        `<mark class="del">${escapeHtml(change.find)}</mark>` +
+        ` &#8594; ` +
+        `<mark class="ins">${escapeHtml(change.replace)}</mark>`;
     }
 
     row.appendChild(chk);
     row.appendChild(desc);
-    wrap.appendChild(row);
+    item.appendChild(row);
   }
-  return wrap;
+  return item;
 }
 
-function buildViolationList(violations) {
-  const wrap = el("div", "violation-list");
+function buildViolationsItem(violations) {
+  const wrap = el("div", "violation-item-wrap");
   for (const v of violations) {
     const item = el("div", "violation-item");
     item.innerHTML =
@@ -262,16 +328,28 @@ function buildViolationList(violations) {
   return wrap;
 }
 
-// Re-render just the two text cells for a paragraph after a toggle.
-function refreshParaRow(paraIndex) {
+// ---------------------------------------------------------------------------
+// Refresh a single corrected paragraph after accept/reject toggle
+// ---------------------------------------------------------------------------
+
+function refreshDocPara(paraIndex) {
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   if (!para) return;
 
-  const container = $("paragraphs-container");
-  const leftCell  = container.querySelector(`.para-cell[data-para-index="${paraIndex}"][data-side="left"]`);
-  const rightCell = container.querySelector(`.para-cell[data-para-index="${paraIndex}"][data-side="right"]`);
-  if (leftCell)  leftCell.innerHTML  = buildOriginalHtml(para);
-  if (rightCell) rightCell.innerHTML = buildCorrectedHtml(para);
+  const corrEl = document.querySelector(`#corrected-column .doc-para[data-para-index="${paraIndex}"]`);
+  const origEl = document.querySelector(`#original-column .doc-para[data-para-index="${paraIndex}"]`);
+
+  if (origEl) origEl.innerHTML = buildOriginalHtml(para);
+  if (corrEl) corrEl.innerHTML = buildCorrectedHtml(para);
+
+  // Re-sync heights for this pair
+  if (origEl && corrEl) {
+    origEl.style.minHeight = "";
+    corrEl.style.minHeight = "";
+    const h = Math.max(origEl.offsetHeight, corrEl.offsetHeight);
+    origEl.style.minHeight = h + "px";
+    corrEl.style.minHeight = h + "px";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,30 +361,23 @@ function isAccepted(paraIndex, ruleId) {
 }
 
 function getAcceptedRuleIds() {
-  // Return the union of all rule IDs that are accepted across all paragraphs.
-  // For rules that appear in multiple paragraphs, a rule is "accepted" if it
-  // is accepted in at least one paragraph (server re-applies globally).
   const ids = new Set();
   for (const [key, val] of accepted.entries()) {
-    if (val) {
-      const ruleId = key.split("::")[1];
-      ids.add(ruleId);
-    }
+    if (val) ids.add(key.split("::")[1]);
   }
   return [...ids];
 }
 
 // ---------------------------------------------------------------------------
-// Show/hide unchanged paragraphs
+// Show / hide unchanged paragraphs
 // ---------------------------------------------------------------------------
 
 $("show-all-toggle").addEventListener("change", applyUnchangedVisibility);
 
 function applyUnchangedVisibility() {
   const show = $("show-all-toggle").checked;
-  document
-    .querySelectorAll(".para-row.unchanged")
-    .forEach(row => { row.hidden = !show; });
+  document.querySelectorAll(".doc-para.unchanged").forEach(el => { el.hidden = !show; });
+  requestAnimationFrame(syncParaHeights);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +389,7 @@ $("back-btn").addEventListener("click", () => {
   $("upload-section").hidden = false;
   sessionId = null; reportData = null; accepted.clear();
   $("upload-form").reset();
-  fileDropLabel.textContent = "Click to choose a .docx file";
+  fileDropLabel.textContent = "Drop your file here, or click to browse";
   fileDropLabel.classList.remove("has-file");
   submitBtn.disabled = true;
 });
@@ -330,17 +401,15 @@ $("back-btn").addEventListener("click", () => {
 $("download-btn").addEventListener("click", async () => {
   if (!sessionId) return;
 
-  $("download-btn").disabled = true;
-  $("download-btn").textContent = "Preparing…";
+  const btn = $("download-btn");
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
 
   try {
     const res = await fetch("/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        accepted_rule_ids: getAcceptedRuleIds(),
-      }),
+      body: JSON.stringify({ session_id: sessionId, accepted_rule_ids: getAcceptedRuleIds() }),
     });
 
     if (!res.ok) {
@@ -354,7 +423,7 @@ $("download-btn").addEventListener("click", async () => {
     const filename = match ? match[1] : "corrected.docx";
 
     const url = URL.createObjectURL(blob);
-    const a   = document.createElement("a");
+    const a = document.createElement("a");
     a.href = url; a.download = filename;
     document.body.appendChild(a);
     a.click();
@@ -363,13 +432,13 @@ $("download-btn").addEventListener("click", async () => {
   } catch (err) {
     alert(err.message);
   } finally {
-    $("download-btn").disabled = false;
-    $("download-btn").innerHTML = "&#8681; Download corrected document";
+    btn.disabled = false;
+    btn.innerHTML = "&#8681; Download";
   }
 });
 
 // ---------------------------------------------------------------------------
-// Text processing utilities
+// Text utilities
 // ---------------------------------------------------------------------------
 
 function escapeHtml(str) {
@@ -384,7 +453,6 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Apply a substitution rule to plain text (no HTML involved).
 function applySubstitution(text, find, replace, caseSensitive, wholeWord) {
   const escaped = escapeRegex(find);
   const pattern = wholeWord ? `\\b${escaped}\\b` : escaped;
@@ -392,10 +460,6 @@ function applySubstitution(text, find, replace, caseSensitive, wholeWord) {
   return text.replace(new RegExp(pattern, flags), replace);
 }
 
-// Wrap occurrences of `phrase` in already-HTML-escaped text with a <mark>.
-// We escape the phrase, search the escaped HTML, and wrap with the mark tag.
-// This works because the text cells contain only escaped text (no inner HTML
-// from user content), so phrase matching on the HTML string is safe.
 function highlightPattern(escapedHtml, phrase, caseSensitive, wholeWord, markClass) {
   const escapedPhrase = escapeRegex(escapeHtml(phrase));
   const pattern = wholeWord ? `\\b${escapedPhrase}\\b` : escapedPhrase;
