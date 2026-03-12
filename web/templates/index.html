@@ -65,6 +65,7 @@
         <button class="btn-ghost-sm" id="back-btn">&#8592; Back</button>
         <div class="review-top-summary" id="summary-banner"></div>
         <div class="review-top-actions">
+          <button class="btn-ghost-sm" id="accept-all-btn">&#10003; Accept all</button>
           <label class="toggle-label">
             <input type="checkbox" id="show-all-toggle"> Show all
           </label>
@@ -77,7 +78,7 @@
     <div class="doc-viewer-wrap">
       <div class="doc-viewer-labels">
         <div class="doc-viewer-label">Original</div>
-        <div class="doc-viewer-label">Corrected</div>
+        <div class="doc-viewer-label">Suggested corrections</div>
       </div>
       <div class="doc-viewer">
         <div class="doc-pane" id="original-column"></div>
@@ -85,13 +86,16 @@
       </div>
     </div>
 
-    <!-- Changes & violations panel -->
-    <div class="changes-panel-wrap">
-      <div class="changes-panel-header">Changes &amp; Violations</div>
-      <div id="changes-panel"></div>
+    <!-- Full-document issues (violations only — no inline fix available) -->
+    <div class="issues-wrap" id="full-doc-issues-wrap" hidden>
+      <div class="issues-header">Full Document Issues</div>
+      <div id="full-doc-issues"></div>
     </div>
 
   </div>
+
+  <!-- ── Hover tooltip ───────────────────────────────────────────────── -->
+  <div id="change-tooltip" class="change-tooltip" hidden></div>
 
   <!-- ── Loading overlay ─────────────────────────────────────────────── -->
   <div id="loading-overlay" hidden>

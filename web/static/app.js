@@ -85,7 +85,7 @@ function renderReview(data) {
   sessionId  = data.session_id;
   accepted.clear();
 
-  // Pre-accept all changes
+  // Default: accept all changes
   for (const para of data.paragraphs) {
     for (const change of para.changes) {
       accepted.set(acceptedKey(para.index, change.rule_id), true);
@@ -94,7 +94,7 @@ function renderReview(data) {
 
   renderSummary(data);
   renderDocColumns(data.paragraphs);
-  renderChangesPanel(data.paragraphs);
+  renderViolationsSection(data.paragraphs);
 
   $("upload-section").hidden = true;
   $("review-section").hidden = false;
@@ -110,8 +110,6 @@ function acceptedKey(paraIndex, ruleId) {
 
 function renderSummary(data) {
   const s = data.summary;
-  const banner = $("summary-banner");
-
   const parts = [
     `<span class="summary-stat">
        <span class="pill pill-change">${s.changes}</span>
@@ -126,7 +124,7 @@ function renderSummary(data) {
     parts.push(`<span class="pill pill-clean">&#10003; Clean</span>`);
   }
   parts.push(`<span class="template-name">${escapeHtml(data.template_name)}</span>`);
-  banner.innerHTML = parts.join("");
+  $("summary-banner").innerHTML = parts.join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -154,20 +152,17 @@ function buildDocPara(para, side) {
   div.dataset.paraIndex = para.index;
   div.dataset.side = side;
 
-  // Apply Word-like styling from document metadata
   applyDocStyle(div, para);
 
   if (para.original.trim() === "") {
     div.innerHTML = "\u00a0";
     div.classList.add("empty-para");
   } else if (side === "original") {
-    div.innerHTML = buildOriginalHtml(para);
-    if (para.has_changes)    div.classList.add("changed-orig");
-    if (para.has_violations) div.classList.add("violated");
+    // Original: plain text only — no highlights
+    div.innerHTML = escapeHtml(para.original);
   } else {
+    // Corrected: inline change-mark spans for each substitution
     div.innerHTML = buildCorrectedHtml(para);
-    if (para.has_changes)    div.classList.add("changed-corr");
-    if (para.has_violations) div.classList.add("violated");
   }
 
   if (!para.has_changes && !para.has_violations) {
@@ -180,40 +175,33 @@ function buildDocPara(para, side) {
 function applyDocStyle(div, para) {
   const styleName = para.style_name || "Normal";
 
-  // Map Word style names → CSS class
-  if      (/^Title$/i.test(styleName))              div.classList.add("doc-style-title");
-  else if (/^Heading\s*1$/i.test(styleName))        div.classList.add("doc-style-h1");
-  else if (/^Heading\s*2$/i.test(styleName))        div.classList.add("doc-style-h2");
-  else if (/^Heading\s*3$/i.test(styleName))        div.classList.add("doc-style-h3");
-  else if (/^Heading\s*[4-9]$/i.test(styleName))   div.classList.add("doc-style-h4");
-  else                                               div.classList.add("doc-style-body");
+  if      (/^Title$/i.test(styleName))             div.classList.add("doc-style-title");
+  else if (/^Heading\s*1$/i.test(styleName))       div.classList.add("doc-style-h1");
+  else if (/^Heading\s*2$/i.test(styleName))       div.classList.add("doc-style-h2");
+  else if (/^Heading\s*3$/i.test(styleName))       div.classList.add("doc-style-h3");
+  else if (/^Heading\s*[4-9]$/i.test(styleName))  div.classList.add("doc-style-h4");
+  else                                              div.classList.add("doc-style-body");
 
-  // Inline style overrides (body text only; headings are handled by CSS)
   const isHeading = /^(Title|Heading)/i.test(styleName);
   const parts = [];
-
   if (!isHeading && para.font_size) {
-    // Convert pt → px and scale slightly (Word 11pt ≈ browser 14px, we scale to ~13px)
     const px = Math.round(para.font_size * 1.25);
     if (px > 8 && px < 28) parts.push(`font-size: ${px}px`);
   }
-  if (para.bold   === true  && !isHeading) parts.push("font-weight: 700");
-  if (para.italic === true)                parts.push("font-style: italic");
-  if (para.color_hex)                      parts.push(`color: #${para.color_hex}`);
-
+  if (para.bold   === true && !isHeading) parts.push("font-weight: 700");
+  if (para.italic === true)               parts.push("font-style: italic");
+  if (para.color_hex)                     parts.push(`color: #${para.color_hex}`);
   if (parts.length) div.setAttribute("style", parts.join("; "));
 }
 
-// Sync min-heights so corresponding left/right paragraphs stay aligned
+// Sync paragraph heights so the two columns stay aligned
 function syncParaHeights() {
   const origParas = [...document.querySelectorAll("#original-column .doc-para")];
   const corrParas = [...document.querySelectorAll("#corrected-column .doc-para")];
 
-  // Reset
   origParas.forEach(e => e.style.minHeight = "");
   corrParas.forEach(e => e.style.minHeight = "");
 
-  // Apply
   origParas.forEach((e, i) => {
     const c = corrParas[i];
     if (!c) return;
@@ -223,126 +211,73 @@ function syncParaHeights() {
   });
 }
 
-// Re-sync on window resize
-const _resizeObs = new ResizeObserver(() => syncParaHeights());
-_resizeObs.observe(document.body);
+new ResizeObserver(syncParaHeights).observe(document.body);
 
 // ---------------------------------------------------------------------------
-// Build paragraph HTML
+// Build corrected HTML with inline change-mark spans
 // ---------------------------------------------------------------------------
 
-function buildOriginalHtml(para) {
-  let html = escapeHtml(para.original);
-  for (const change of para.changes) {
-    if (isAccepted(para.index, change.rule_id) && change.find) {
-      html = highlightPattern(html, change.find, change.case_sensitive, change.whole_word, "del");
+// Split `text` on occurrences of `find` and return an array of segments.
+// Each segment is either {text, ruleId:null} (plain) or
+// {text, ruleId, accepted} (a substitution match).
+function applyChangeToSegments(segments, change, paraIndex) {
+  const escaped = escapeRegex(change.find);
+  const pattern = change.whole_word ? `\\b${escaped}\\b` : escaped;
+  const flags   = change.case_sensitive ? "g" : "gi";
+  const re      = new RegExp(pattern, flags);
+  const acc     = isAccepted(paraIndex, change.rule_id);
+
+  const out = [];
+  for (const seg of segments) {
+    if (seg.ruleId !== null) { out.push(seg); continue; } // already marked
+
+    let last = 0;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(seg.text)) !== null) {
+      if (m.index > last) out.push({ text: seg.text.slice(last, m.index), ruleId: null });
+      out.push({
+        text:     acc ? change.replace : m[0],  // replacement or kept original
+        ruleId:   change.rule_id,
+        accepted: acc,
+      });
+      last = m.index + m[0].length;
     }
+    if (last < seg.text.length) out.push({ text: seg.text.slice(last), ruleId: null });
   }
-  return html;
+  return out.length ? out : segments;
 }
 
 function buildCorrectedHtml(para) {
-  // Re-apply accepted substitutions client-side for live preview
-  let text = para.original;
+  if (para.original.trim() === "") return "\u00a0";
+
+  let segments = [{ text: para.original, ruleId: null }];
+
   for (const change of para.changes) {
-    if (isAccepted(para.index, change.rule_id) && change.find) {
-      text = applySubstitution(text, change.find, change.replace, change.case_sensitive, change.whole_word);
-    }
+    if (!change.find) continue;
+    segments = applyChangeToSegments(segments, change, para.index);
   }
 
-  let html = escapeHtml(text);
-  for (const change of para.changes) {
-    if (isAccepted(para.index, change.rule_id) && change.replace) {
-      html = highlightPattern(html, change.replace, change.case_sensitive, change.whole_word, "ins");
-    }
-  }
-  return html;
+  return segments.map(seg => {
+    const t = escapeHtml(seg.text);
+    if (!seg.ruleId) return t;
+    const cls = `change-mark ${seg.accepted ? "accepted" : "rejected"}`;
+    return `<span class="${cls}" ` +
+           `data-para-index="${para.index}" ` +
+           `data-rule-id="${escapeHtml(seg.ruleId)}">${t}</span>`;
+  }).join("");
 }
 
-// ---------------------------------------------------------------------------
-// Changes & violations panel
-// ---------------------------------------------------------------------------
-
-function renderChangesPanel(paragraphs) {
-  const panel = $("changes-panel");
-  panel.innerHTML = "";
-
-  for (const para of paragraphs) {
-    if (para.changes.length > 0) {
-      panel.appendChild(buildChangesItem(para));
-    }
-    if (para.violations.length > 0) {
-      panel.appendChild(buildViolationsItem(para.violations));
-    }
-  }
-
-  if (panel.children.length === 0) {
-    const msg = el("div", "clean-msg");
-    msg.innerHTML = `<span class="pill pill-clean">&#10003; No changes or violations found</span>`;
-    panel.appendChild(msg);
-  }
-}
-
-function buildChangesItem(para) {
-  const item = el("div", "change-item");
-  for (const change of para.changes) {
-    const key = acceptedKey(para.index, change.rule_id);
-    const row = el("div", "change-row");
-
-    const chk = document.createElement("input");
-    chk.type = "checkbox";
-    chk.checked = accepted.get(key) !== false;
-    chk.dataset.paraIndex = para.index;
-    chk.dataset.ruleId    = change.rule_id;
-    chk.addEventListener("change", () => {
-      accepted.set(key, chk.checked);
-      refreshDocPara(para.index);
-    });
-
-    const desc = el("label", "change-desc");
-    desc.innerHTML = `<strong>${escapeHtml(change.description)}</strong>`;
-    if (change.find && change.replace) {
-      desc.innerHTML +=
-        `<span class="arrow-sep">&middot;</span>` +
-        `<mark class="del">${escapeHtml(change.find)}</mark>` +
-        ` &#8594; ` +
-        `<mark class="ins">${escapeHtml(change.replace)}</mark>`;
-    }
-
-    row.appendChild(chk);
-    row.appendChild(desc);
-    item.appendChild(row);
-  }
-  return item;
-}
-
-function buildViolationsItem(violations) {
-  const wrap = el("div", "violation-item-wrap");
-  for (const v of violations) {
-    const item = el("div", "violation-item");
-    item.innerHTML =
-      `<span class="icon">&#9888;</span>` +
-      `<span><strong>${escapeHtml(v.description)}</strong> &mdash; ${escapeHtml(v.detail)}</span>`;
-    wrap.appendChild(item);
-  }
-  return wrap;
-}
-
-// ---------------------------------------------------------------------------
-// Refresh a single corrected paragraph after accept/reject toggle
-// ---------------------------------------------------------------------------
-
+// Refresh the corrected cell for one paragraph
 function refreshDocPara(paraIndex) {
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   if (!para) return;
 
   const corrEl = document.querySelector(`#corrected-column .doc-para[data-para-index="${paraIndex}"]`);
-  const origEl = document.querySelector(`#original-column .doc-para[data-para-index="${paraIndex}"]`);
-
-  if (origEl) origEl.innerHTML = buildOriginalHtml(para);
   if (corrEl) corrEl.innerHTML = buildCorrectedHtml(para);
 
-  // Re-sync heights for this pair
+  // Re-sync height for this pair
+  const origEl = document.querySelector(`#original-column .doc-para[data-para-index="${paraIndex}"]`);
   if (origEl && corrEl) {
     origEl.style.minHeight = "";
     corrEl.style.minHeight = "";
@@ -353,19 +288,143 @@ function refreshDocPara(paraIndex) {
 }
 
 // ---------------------------------------------------------------------------
-// Accept/reject helpers
+// Hover tooltip
 // ---------------------------------------------------------------------------
 
-function isAccepted(paraIndex, ruleId) {
-  return accepted.get(acceptedKey(paraIndex, ruleId)) !== false;
+const _tooltip    = $("change-tooltip");
+let   _ttHideTimer = null;
+
+function showTooltip(anchor, paraIndex, ruleId) {
+  const para   = reportData?.paragraphs.find(p => p.index === paraIndex);
+  const change = para?.changes.find(c => c.rule_id === ruleId);
+  if (!change) return;
+
+  clearTimeout(_ttHideTimer);
+
+  const acc = isAccepted(paraIndex, ruleId);
+
+  _tooltip.innerHTML =
+    `<div class="tt-desc">${escapeHtml(change.description)}</div>` +
+    (change.find && change.replace
+      ? `<div class="tt-rule">
+           <span class="tt-del">${escapeHtml(change.find)}</span>
+           <span class="tt-arr">→</span>
+           <span class="tt-ins">${escapeHtml(change.replace)}</span>
+         </div>`
+      : "") +
+    `<div class="tt-actions">
+       <button class="tt-btn tt-reject${!acc ? " tt-active" : ""}"
+               data-action="reject" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
+         &#10005; Reject
+       </button>
+       <button class="tt-btn tt-accept${acc ? " tt-active" : ""}"
+               data-action="accept" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
+         &#10003; Accept
+       </button>
+     </div>`;
+
+  _tooltip.hidden = false;
+
+  // Position: just below the anchor, clamped to viewport
+  const rect = anchor.getBoundingClientRect();
+  const tw   = _tooltip.offsetWidth  || 240;
+  const th   = _tooltip.offsetHeight || 110;
+
+  let top  = rect.bottom + 8;
+  let left = rect.left;
+
+  // Flip upward if too close to bottom edge
+  if (top + th > window.innerHeight - 16) top = rect.top - th - 8;
+  if (left + tw > window.innerWidth  - 12) left = window.innerWidth - tw - 12;
+  if (left < 8) left = 8;
+
+  _tooltip.style.top  = top  + "px";
+  _tooltip.style.left = left + "px";
 }
 
-function getAcceptedRuleIds() {
-  const ids = new Set();
-  for (const [key, val] of accepted.entries()) {
-    if (val) ids.add(key.split("::")[1]);
+function hideTooltip() { _tooltip.hidden = true; }
+
+// Show on hover over any .change-mark
+document.addEventListener("mouseover", e => {
+  const mark = e.target.closest?.(".change-mark");
+  if (mark) {
+    clearTimeout(_ttHideTimer);
+    showTooltip(mark, +mark.dataset.paraIndex, mark.dataset.ruleId);
   }
-  return [...ids];
+});
+
+// Hide when leaving the mark (unless entering the tooltip itself)
+document.addEventListener("mouseout", e => {
+  if (e.target.closest?.(".change-mark") && !e.relatedTarget?.closest?.("#change-tooltip")) {
+    _ttHideTimer = setTimeout(hideTooltip, 240);
+  }
+});
+
+// Keep visible while hovering over tooltip
+_tooltip.addEventListener("mouseenter", () => clearTimeout(_ttHideTimer));
+_tooltip.addEventListener("mouseleave", () => { _ttHideTimer = setTimeout(hideTooltip, 240); });
+
+// Accept / Reject buttons inside tooltip
+_tooltip.addEventListener("click", e => {
+  const btn = e.target.closest(".tt-btn");
+  if (!btn) return;
+  const paraIndex = +btn.dataset.para;
+  const ruleId    = btn.dataset.rule;
+  accepted.set(acceptedKey(paraIndex, ruleId), btn.dataset.action === "accept");
+  refreshDocPara(paraIndex);
+  hideTooltip();
+});
+
+// ---------------------------------------------------------------------------
+// Accept all
+// ---------------------------------------------------------------------------
+
+$("accept-all-btn").addEventListener("click", () => {
+  if (!reportData) return;
+  for (const para of reportData.paragraphs) {
+    for (const change of para.changes) {
+      accepted.set(acceptedKey(para.index, change.rule_id), true);
+    }
+  }
+  renderDocColumns(reportData.paragraphs);
+});
+
+// ---------------------------------------------------------------------------
+// Full-document violations section
+// ---------------------------------------------------------------------------
+
+function renderViolationsSection(paragraphs) {
+  // Aggregate violations by rule_id across all paragraphs
+  const byRule = new Map();
+  for (const para of paragraphs) {
+    for (const v of para.violations) {
+      if (!byRule.has(v.rule_id)) {
+        byRule.set(v.rule_id, { description: v.description, detail: v.detail, count: 0 });
+      }
+      byRule.get(v.rule_id).count++;
+    }
+  }
+
+  const wrap = $("full-doc-issues-wrap");
+  const list = $("full-doc-issues");
+  list.innerHTML = "";
+
+  if (byRule.size === 0) { wrap.hidden = true; return; }
+
+  wrap.hidden = false;
+  for (const [, info] of byRule) {
+    const item = el("div", "issue-item");
+    item.innerHTML =
+      `<span class="issue-icon">&#9888;</span>` +
+      `<div class="issue-body">
+         <strong>${escapeHtml(info.description)}</strong>
+         <span class="issue-detail">${escapeHtml(info.detail)}</span>
+         ${info.count > 1
+           ? `<span class="issue-count">${info.count} paragraphs affected</span>`
+           : ""}
+       </div>`;
+    list.appendChild(item);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -376,7 +435,7 @@ $("show-all-toggle").addEventListener("change", applyUnchangedVisibility);
 
 function applyUnchangedVisibility() {
   const show = $("show-all-toggle").checked;
-  document.querySelectorAll(".doc-para.unchanged").forEach(el => { el.hidden = !show; });
+  document.querySelectorAll(".doc-para.unchanged").forEach(e => { e.hidden = !show; });
   requestAnimationFrame(syncParaHeights);
 }
 
@@ -392,6 +451,7 @@ $("back-btn").addEventListener("click", () => {
   fileDropLabel.textContent = "Drop your file here, or click to browse";
   fileDropLabel.classList.remove("has-file");
   submitBtn.disabled = true;
+  hideTooltip();
 });
 
 // ---------------------------------------------------------------------------
@@ -400,7 +460,6 @@ $("back-btn").addEventListener("click", () => {
 
 $("download-btn").addEventListener("click", async () => {
   if (!sessionId) return;
-
   const btn = $("download-btn");
   btn.disabled = true;
   btn.textContent = "Preparing…";
@@ -411,23 +470,18 @@ $("download-btn").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, accepted_rule_ids: getAcceptedRuleIds() }),
     });
-
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error ?? "Download failed");
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error ?? "Download failed");
     }
-
     const blob = await res.blob();
     const disposition = res.headers.get("Content-Disposition") ?? "";
     const match = disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)/i);
     const filename = match ? match[1] : "corrected.docx";
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (err) {
     alert(err.message);
@@ -438,52 +492,35 @@ $("download-btn").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Text utilities
+// Helpers
 // ---------------------------------------------------------------------------
+
+function isAccepted(paraIndex, ruleId) {
+  return accepted.get(acceptedKey(paraIndex, ruleId)) !== false;
+}
+
+function getAcceptedRuleIds() {
+  const ids = new Set();
+  for (const [key, val] of accepted.entries()) {
+    if (val) ids.add(key.split("::")[1]);
+  }
+  return [...ids];
+}
 
 function escapeHtml(str) {
   return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function applySubstitution(text, find, replace, caseSensitive, wholeWord) {
-  const escaped = escapeRegex(find);
-  const pattern = wholeWord ? `\\b${escaped}\\b` : escaped;
-  const flags   = caseSensitive ? "g" : "gi";
-  return text.replace(new RegExp(pattern, flags), replace);
-}
-
-function highlightPattern(escapedHtml, phrase, caseSensitive, wholeWord, markClass) {
-  const escapedPhrase = escapeRegex(escapeHtml(phrase));
-  const pattern = wholeWord ? `\\b${escapedPhrase}\\b` : escapedPhrase;
-  const flags   = caseSensitive ? "g" : "gi";
-  return escapedHtml.replace(
-    new RegExp(pattern, flags),
-    m => `<mark class="${markClass}">${m}</mark>`
-  );
-}
-
-// ---------------------------------------------------------------------------
-// UI utilities
-// ---------------------------------------------------------------------------
-
-function showLoading(on) {
-  $("loading-overlay").hidden = !on;
-}
+function showLoading(on) { $("loading-overlay").hidden = !on; }
 
 function showError(msg) {
-  const banner = $("upload-error");
-  if (msg) {
-    banner.textContent = msg;
-    banner.hidden = false;
-  } else {
-    banner.hidden = true;
-  }
+  const b = $("upload-error");
+  if (msg) { b.textContent = msg; b.hidden = false; }
+  else     { b.hidden = true; }
 }
