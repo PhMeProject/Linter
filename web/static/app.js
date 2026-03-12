@@ -285,6 +285,17 @@ function buildParaHtml(para) {
   return html;
 }
 
+// Flash a paragraph green briefly to signal an accepted change
+function flashPara(paraIndex) {
+  const div = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
+  if (!div) return;
+  div.classList.remove("accept-flash");
+  // Force reflow so the animation restarts if called twice quickly
+  void div.offsetWidth;
+  div.classList.add("accept-flash");
+  div.addEventListener("animationend", () => div.classList.remove("accept-flash"), { once: true });
+}
+
 // Refresh a single paragraph after a state change
 function refreshPara(paraIndex) {
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
@@ -462,6 +473,8 @@ $("sidebar-list").addEventListener("click", e => {
     // Remove highlight since the span may now be gone
     document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
       .forEach(s => s.classList.remove("active-change"));
+    // Flash the paragraph green on accept so the edit is visible
+    if (action === "accept") flashPara(paraIndex);
   } else {
     activateCard(paraIndex, ruleId, cardType);
   }
@@ -473,14 +486,18 @@ $("sidebar-list").addEventListener("click", e => {
 
 $("accept-all-btn").addEventListener("click", () => {
   if (!reportData) return;
+  const changedParas = new Set();
   for (const para of reportData.paragraphs) {
     for (const change of para.changes) {
       accepted.set(acceptedKey(para.index, change.rule_id), true);
+      changedParas.add(para.index);
     }
   }
   renderDocument(reportData.paragraphs);
   renderSidebar(reportData);
   _activeCard = null;
+  // Flash every paragraph that had a change so edits are visible
+  changedParas.forEach(idx => flashPara(idx));
 });
 
 // ---------------------------------------------------------------------------
