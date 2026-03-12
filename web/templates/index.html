@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brand Linter</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <span class="header-logo">&#10003;</span>
+      <h1 class="header-title">Brand Linter</h1>
+    </div>
+  </header>
+
+  <!-- ── Upload panel ──────────────────────────────────────────────────── -->
+  <main id="upload-section">
+    <div class="card upload-card">
+      <h2>Check a document</h2>
+      <p class="subtitle">Upload a Word file and select the brand template to lint against.</p>
+
+      <form id="upload-form" novalidate>
+        <div class="field">
+          <label for="template-select">Template</label>
+          <select id="template-select" name="template" required>
+            {% for t in templates %}
+            <option value="{{ t.slug }}">{{ t.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="file-input">Document <span class="hint">(.docx)</span></label>
+          <div class="file-drop" id="file-drop">
+            <input type="file" id="file-input" name="file" accept=".docx" required>
+            <span class="file-drop-label" id="file-drop-label">
+              Click to choose a .docx file
+            </span>
+          </div>
+        </div>
+
+        <div id="upload-error" class="error-banner" hidden></div>
+
+        <button type="submit" id="submit-btn" class="btn-primary" disabled>
+          Upload &amp; Lint
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- ── Review panel (shown after lint) ───────────────────────────────── -->
+  <main id="review-section" hidden>
+
+    <div id="summary-banner" class="summary-banner"></div>
+
+    <div class="review-toolbar">
+      <div class="toolbar-left">
+        <button class="btn-ghost" id="back-btn">&#8592; Upload another</button>
+        <label class="toggle-label">
+          <input type="checkbox" id="show-all-toggle">
+          Show unchanged paragraphs
+        </label>
+      </div>
+      <button class="btn-primary" id="download-btn">
+        &#8681; Download corrected document
+      </button>
+    </div>
+
+    <div class="diff-table-wrap">
+      <div class="diff-col-header">
+        <span>Original</span>
+        <span>Corrected</span>
+      </div>
+      <div id="paragraphs-container"></div>
+    </div>
+
+  </main>
+
+  <!-- ── Loading overlay ───────────────────────────────────────────────── -->
+  <div id="loading-overlay" hidden>
+    <div class="spinner"></div>
+    <p>Linting document…</p>
+  </div>
+
+  <script>
+    // Jinja passes data into the page so the JS can read it without an
+    // extra fetch.  Everything else is handled in app.js.
+    window.BRAND_LINTER = {};
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
