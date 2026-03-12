@@ -1,0 +1,124 @@
+{
+  "template_name": "Newsletter External",
+  "version": "1.0",
+  "description": "Rules for the company's outbound subscriber newsletter.",
+  "rules": {
+    "branding": {
+      "typography": {
+        "always": [
+          {
+            "type": "style",
+            "id": "typo-ext-001",
+            "description": "Body text (Normal style) must use Calibri at 11pt",
+            "match": { "style_name": "Normal" },
+            "require": { "font_name": "Calibri", "font_size": 11 }
+          },
+          {
+            "type": "style",
+            "id": "typo-ext-002",
+            "description": "Heading 1 must use Calibri at 20pt bold",
+            "match": { "style_name": "Heading 1" },
+            "require": { "font_name": "Calibri", "font_size": 20, "bold": true }
+          },
+          {
+            "type": "style",
+            "id": "typo-ext-003",
+            "description": "Heading 2 must use Calibri at 14pt bold",
+            "match": { "style_name": "Heading 2" },
+            "require": { "font_name": "Calibri", "font_size": 14, "bold": true }
+          }
+        ],
+        "never": [
+          {
+            "type": "style",
+            "id": "typo-ext-n001",
+            "description": "Comic Sans must never be used in external communications",
+            "match": {},
+            "require": { "font_name": "Comic Sans MS" }
+          }
+        ]
+      },
+      "colors": {
+        "always": [
+          {
+            "type": "style",
+            "id": "color-ext-001",
+            "description": "Heading 1 must use approved navy brand color (#1F3864)",
+            "match": { "style_name": "Heading 1" },
+            "require": { "color_hex": "1F3864" }
+          }
+        ],
+        "never": []
+      },
+      "logos": {
+        "always": [],
+        "never": []
+      }
+    },
+    "formatting": {
+      "always": [],
+      "never": []
+    },
+    "language": {
+      "always": [
+        {
+          "type": "text_substitution",
+          "id": "lang-ext-001",
+          "description": "Use 'team members' instead of 'employees'",
+          "find": "employees",
+          "replace": "team members",
+          "case_sensitive": false,
+          "whole_word": true
+        },
+        {
+          "type": "text_substitution",
+          "id": "lang-ext-002",
+          "description": "Use 'partners' instead of 'vendors'",
+          "find": "vendors",
+          "replace": "partners",
+          "case_sensitive": false,
+          "whole_word": true
+        },
+        {
+          "type": "text_substitution",
+          "id": "lang-ext-003",
+          "description": "Use 'Acme Corp' as the canonical company name (not 'ACME' or 'acme')",
+          "find": "ACME",
+          "replace": "Acme Corp",
+          "case_sensitive": true,
+          "whole_word": true
+        }
+      ],
+      "never": [
+        {
+          "type": "text_prohibition",
+          "id": "lang-ext-n001",
+          "description": "Never use 'synergy' in external documents",
+          "find": "synergy",
+          "case_sensitive": false,
+          "whole_word": true
+        },
+        {
+          "type": "text_prohibition",
+          "id": "lang-ext-n002",
+          "description": "Never use 'leverage' as a verb",
+          "find": "leverage",
+          "case_sensitive": false,
+          "whole_word": false
+        },
+        {
+          "type": "text_prohibition",
+          "id": "lang-ext-n003",
+          "description": "Never use internal project codenames in external documents",
+          "find": "Project Nighthawk",
+          "case_sensitive": false,
+          "whole_word": false
+        }
+      ]
+    },
+    "structure": {
+      "always": [],
+      "never": []
+    }
+  }
+}

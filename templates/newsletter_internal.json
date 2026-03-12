@@ -1,0 +1,84 @@
+{
+  "template_name": "Newsletter Internal",
+  "version": "1.0",
+  "description": "Rules for the company's internal all-hands newsletter.",
+  "rules": {
+    "branding": {
+      "typography": {
+        "always": [
+          {
+            "type": "style",
+            "id": "typo-int-001",
+            "description": "Body text (Normal style) must use Arial at 11pt",
+            "match": { "style_name": "Normal" },
+            "require": { "font_name": "Arial", "font_size": 11 }
+          },
+          {
+            "type": "style",
+            "id": "typo-int-002",
+            "description": "Heading 1 must use Arial at 18pt bold",
+            "match": { "style_name": "Heading 1" },
+            "require": { "font_name": "Arial", "font_size": 18, "bold": true }
+          }
+        ],
+        "never": []
+      },
+      "colors": {
+        "always": [],
+        "never": []
+      },
+      "logos": {
+        "always": [],
+        "never": []
+      }
+    },
+    "formatting": {
+      "always": [],
+      "never": []
+    },
+    "language": {
+      "always": [
+        {
+          "type": "text_substitution",
+          "id": "lang-int-001",
+          "description": "Use 'team members' instead of 'employees'",
+          "find": "employees",
+          "replace": "team members",
+          "case_sensitive": false,
+          "whole_word": true
+        },
+        {
+          "type": "text_substitution",
+          "id": "lang-int-002",
+          "description": "Refer to the CEO by full title: 'Chief Executive Officer'",
+          "find": "CEO",
+          "replace": "Chief Executive Officer",
+          "case_sensitive": true,
+          "whole_word": true
+        }
+      ],
+      "never": [
+        {
+          "type": "text_prohibition",
+          "id": "lang-int-n001",
+          "description": "Never mention specific salary figures in internal newsletters",
+          "find": "$",
+          "case_sensitive": true,
+          "whole_word": false
+        },
+        {
+          "type": "text_prohibition",
+          "id": "lang-int-n002",
+          "description": "Never use 'as per' — use 'according to' or 'following'",
+          "find": "as per",
+          "case_sensitive": false,
+          "whole_word": false
+        }
+      ]
+    },
+    "structure": {
+      "always": [],
+      "never": []
+    }
+  }
+}
