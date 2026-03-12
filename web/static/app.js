@@ -223,29 +223,61 @@ function applyChangeToSegments(segments, change, paraIndex) {
   return out.length ? out : segments;
 }
 
+// Like applyChangeToSegments but for TextProhibitionRule violations —
+// marks the prohibited term with type "violation" in plain segments only.
+function applyViolationToSegments(segments, violation, paraIndex) {
+  const escaped = escapeRegex(violation.find);
+  const pattern = violation.whole_word ? `\\b${escaped}\\b` : escaped;
+  const flags   = violation.case_sensitive ? "g" : "gi";
+  const re      = new RegExp(pattern, flags);
+
+  const out = [];
+  for (const seg of segments) {
+    if (seg.type !== "plain") { out.push(seg); continue; }
+
+    let last = 0;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(seg.text)) !== null) {
+      if (m.index > last) out.push({ text: seg.text.slice(last, m.index), type: "plain" });
+      out.push({ text: m[0], type: "violation", ruleId: violation.rule_id });
+      last = m.index + m[0].length;
+    }
+    if (last < seg.text.length) out.push({ text: seg.text.slice(last), type: "plain" });
+  }
+  return out.length ? out : segments;
+}
+
 function buildParaHtml(para) {
-  // Step 1: build segments from changes
+  // Step 1: build segments from changes (blue wavy)
   let segments = [{ text: para.original, type: "plain" }];
   for (const change of para.changes) {
     if (!change.find) continue;
     segments = applyChangeToSegments(segments, change, para.index);
   }
 
-  // Step 2: convert segments → HTML string
+  // Step 2: overlay prohibition violations (amber wavy) on remaining plain text
+  for (const vio of para.violations) {
+    if (!vio.find) continue; // style violations have no specific word to mark
+    segments = applyViolationToSegments(segments, vio, para.index);
+  }
+
+  // Step 3: convert segments → HTML string
   let html = segments.map(seg => {
     const t = escapeHtml(seg.text);
-    if (seg.type === "plain")    return t;
-    const ri = escapeHtml(seg.ruleId);
     const pi = para.index;
-    if (seg.type === "pending")  return `<span class="change-mark pending"  data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
-    if (seg.type === "accepted") return `<span class="change-mark accepted" data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
+    if (seg.type === "plain")     return t;
+    const ri = escapeHtml(seg.ruleId);
+    if (seg.type === "pending")   return `<span class="change-mark pending"  data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
+    if (seg.type === "accepted")  return `<span class="change-mark accepted" data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
+    if (seg.type === "violation") return `<span class="vio-mark" data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
     return t;
   }).join("");
 
-  // Step 3: if this paragraph has violations, append a small badge
-  // (a ⚠ icon that shows the violation tooltip on hover, without wrapping the
-  // entire paragraph and interfering with change-mark tooltips)
-  if (para.has_violations) {
+  // Step 4: append a ⚠ badge for any style-level violations (whole-paragraph,
+  // no specific word to underline)
+  const hasStyleViolations = para.violations.some(v => !v.find);
+  if (hasStyleViolations) {
     html += `<span class="vio-badge" data-para-index="${para.index}" title="">⚠</span>`;
   }
 
@@ -271,6 +303,7 @@ function showTooltip(anchor) {
   clearTimeout(_ttHideTimer);
 
   const isChange    = anchor.classList.contains("change-mark");
+  const isVioMark   = anchor.classList.contains("vio-mark");
   const isViolation = anchor.classList.contains("vio-badge");
   const paraIndex   = +anchor.dataset.paraIndex;
   const para        = reportData?.paragraphs.find(p => p.index === paraIndex);
@@ -306,9 +339,17 @@ function showTooltip(anchor) {
       </button>
     </div>`;
 
+  } else if (isVioMark) {
+    const ruleId = anchor.dataset.ruleId;
+    const vio = para.violations.find(v => v.rule_id === ruleId);
+    if (!vio) return;
+    html += `<div class="tt-type">Prohibited term</div>`;
+    html += `<div class="tt-desc">${escapeHtml(vio.description)}</div>`;
+    html += `<div class="tt-detail">${escapeHtml(vio.detail)}</div>`;
+
   } else if (isViolation) {
-    html += `<div class="tt-type">Violation</div>`;
-    for (const v of para.violations) {
+    html += `<div class="tt-type">Style violation</div>`;
+    for (const v of para.violations.filter(v => !v.find)) {
       html += `<div class="tt-desc">${escapeHtml(v.description)}</div>`;
       html += `<div class="tt-detail">${escapeHtml(v.detail)}</div>`;
     }
@@ -340,13 +381,13 @@ function hideTooltip() { _tooltip.hidden = true; }
 
 // Show on hover
 document.addEventListener("mouseover", e => {
-  const t = e.target.closest?.(".change-mark, .vio-badge");
+  const t = e.target.closest?.(".change-mark, .vio-mark, .vio-badge");
   if (t) { clearTimeout(_ttHideTimer); showTooltip(t); }
 });
 
 // Hide when leaving (unless entering the tooltip itself)
 document.addEventListener("mouseout", e => {
-  const t = e.target.closest?.(".change-mark, .vio-badge");
+  const t = e.target.closest?.(".change-mark, .vio-mark, .vio-badge");
   if (t && !e.relatedTarget?.closest?.("#change-tooltip")) {
     _ttHideTimer = setTimeout(hideTooltip, 400);
   }

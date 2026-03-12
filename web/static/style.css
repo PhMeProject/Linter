@@ -251,7 +251,20 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .change-mark.accepted:hover { background: rgba(52,199,89,.22); }
 
-/* Violation badge — small ⚠ icon appended after paragraph text */
+/* Prohibited term — amber wavy underline on the specific word */
+.vio-mark {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: rgba(255,159,10,.85);
+  text-decoration-skip-ink: none;
+  cursor: help;
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background .12s;
+}
+.vio-mark:hover { background: rgba(255,159,10,.10); }
+
+/* Style violation badge — small ⚠ icon for whole-paragraph style issues */
 .vio-badge {
   display: inline-block;
   margin-left: .3em;

@@ -18,7 +18,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from brand_linter.executor import run as lint_run
 from brand_linter.loader import load_template
-from brand_linter.models import TextSubstitutionRule
+from brand_linter.models import TextSubstitutionRule, TextProhibitionRule
 from brand_linter.parser import parse_document
 from brand_linter.writer import build_corrected_document
 
@@ -59,6 +59,24 @@ def _load_template_list() -> list[dict[str, str]]:
 def _find_template_path(slug: str) -> Path | None:
     candidate = TEMPLATES_DIR / f"{slug}.json"
     return candidate if candidate.exists() else None
+
+
+def _build_violation_details(violations, rule_map: dict) -> list[dict]:
+    """Serialize violations, enriching TextProhibitionRule entries with find info."""
+    result = []
+    for v in violations:
+        detail: dict = {
+            "rule_id": v.rule_id,
+            "description": v.rule_description,
+            "detail": v.detail,
+        }
+        rule = rule_map.get(v.rule_id)
+        if isinstance(rule, TextProhibitionRule):
+            detail["find"] = rule.find
+            detail["case_sensitive"] = rule.case_sensitive
+            detail["whole_word"] = rule.whole_word
+        result.append(detail)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -156,14 +174,7 @@ def lint():
                 "has_changes": bool(para_changes),
                 "has_violations": bool(para_violations),
                 "changes": change_details,
-                "violations": [
-                    {
-                        "rule_id": v.rule_id,
-                        "description": v.rule_description,
-                        "detail": v.detail,
-                    }
-                    for v in para_violations
-                ],
+                "violations": _build_violation_details(para_violations, rule_map),
             }
         )
 
