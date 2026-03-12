@@ -89,6 +89,7 @@ function renderReview(data) {
 
   renderSummary(data);
   renderDocument(data.paragraphs);
+  renderSidebar(data);
 
   $("upload-section").hidden = true;
   $("review-section").hidden = false;
@@ -293,125 +294,177 @@ function refreshPara(paraIndex) {
 }
 
 // ---------------------------------------------------------------------------
-// Tooltip system
+// Sidebar
 // ---------------------------------------------------------------------------
 
-const _tooltip    = $("change-tooltip");
-let   _ttHideTimer = null;
+let _activeCard = null;
 
-function showTooltip(anchor) {
-  clearTimeout(_ttHideTimer);
+function renderSidebar(data) {
+  const list = $("sidebar-list");
+  list.innerHTML = "";
 
-  const isChange    = anchor.classList.contains("change-mark");
-  const isVioMark   = anchor.classList.contains("vio-mark");
-  const isViolation = anchor.classList.contains("vio-badge");
-  const paraIndex   = +anchor.dataset.paraIndex;
-  const para        = reportData?.paragraphs.find(p => p.index === paraIndex);
-  if (!para) return;
-
-  let html = "";
-
-  if (isChange) {
-    const ruleId = anchor.dataset.ruleId;
-    const change = para.changes.find(c => c.rule_id === ruleId);
-    if (!change) return;
-    const state  = changeState(paraIndex, ruleId);
-
-    html += `<div class="tt-type">Suggested change</div>`;
-    html += `<div class="tt-desc">${escapeHtml(change.description)}</div>`;
-    if (change.find && change.replace) {
-      html += `<div class="tt-rule">
-        <span class="tt-del">${escapeHtml(change.find)}</span>
-        <span class="tt-arr">→</span>
-        <span class="tt-ins">${escapeHtml(change.replace)}</span>
-      </div>`;
+  for (const para of data.paragraphs) {
+    // Change cards (one per unique rule per paragraph)
+    const seenChanges = new Set();
+    for (const change of para.changes) {
+      if (!change.find || seenChanges.has(change.rule_id)) continue;
+      seenChanges.add(change.rule_id);
+      const card = document.createElement("div");
+      card.className = "change-card";
+      card.dataset.paraIndex = para.index;
+      card.dataset.ruleId    = change.rule_id;
+      card.dataset.cardType  = "change";
+      const state = changeState(para.index, change.rule_id);
+      if (state !== "pending") card.classList.add(state);
+      card.innerHTML = buildChangeCardHTML(para.index, change);
+      list.appendChild(card);
     }
-    // Always show both buttons; highlight whichever state is active
-    const isAcc = state === "accepted";
-    html += `<div class="tt-actions">
-      <button class="tt-btn tt-reject-btn"
-              data-action="reject" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
-        Reject
-      </button>
-      <button class="tt-btn tt-accept-btn${isAcc ? " tt-active" : ""}"
-              data-action="accept" data-para="${paraIndex}" data-rule="${escapeHtml(ruleId)}">
-        &#10003; Accept
-      </button>
+
+    // Prohibition violation cards
+    const seenVios = new Set();
+    for (const vio of para.violations) {
+      if (!vio.find || seenVios.has(vio.rule_id)) continue;
+      seenVios.add(vio.rule_id);
+      const card = document.createElement("div");
+      card.className = "change-card";
+      card.dataset.paraIndex = para.index;
+      card.dataset.ruleId    = vio.rule_id;
+      card.dataset.cardType  = "violation";
+      card.innerHTML = buildVioCardHTML(vio);
+      list.appendChild(card);
+    }
+
+    // Style violation cards (whole-paragraph issues)
+    const seenStyle = new Set();
+    for (const vio of para.violations) {
+      if (vio.find || seenStyle.has(vio.rule_id)) continue;
+      seenStyle.add(vio.rule_id);
+      const card = document.createElement("div");
+      card.className = "change-card";
+      card.dataset.paraIndex = para.index;
+      card.dataset.ruleId    = vio.rule_id;
+      card.dataset.cardType  = "style";
+      card.innerHTML = buildStyleVioCardHTML(vio);
+      list.appendChild(card);
+    }
+  }
+
+  if (list.children.length === 0) {
+    list.innerHTML = '<div class="sidebar-empty">&#10003; No issues found</div>';
+  }
+}
+
+function buildChangeCardHTML(paraIndex, change) {
+  const state = changeState(paraIndex, change.rule_id);
+  let h = `<div class="card-header"><span class="card-badge card-badge-change">Suggested change</span></div>`;
+  h += `<div class="card-desc">${escapeHtml(change.description)}</div>`;
+  if (change.find && change.replace) {
+    h += `<div class="card-rule">
+      <span class="tt-del">${escapeHtml(change.find)}</span>
+      <span class="tt-arr">→</span>
+      <span class="tt-ins">${escapeHtml(change.replace)}</span>
     </div>`;
+  }
+  if (state === "pending") {
+    h += `<div class="card-actions">
+      <button class="card-btn card-reject-btn" data-action="reject">Reject</button>
+      <button class="card-btn card-accept-btn" data-action="accept">&#10003; Accept</button>
+    </div>`;
+  } else if (state === "accepted") {
+    h += `<div class="card-status card-accepted">&#10003; Accepted</div>`;
+  } else {
+    h += `<div class="card-status card-rejected">&#10005; Rejected</div>`;
+  }
+  return h;
+}
 
-  } else if (isVioMark) {
-    const ruleId = anchor.dataset.ruleId;
-    const vio = para.violations.find(v => v.rule_id === ruleId);
-    if (!vio) return;
-    html += `<div class="tt-type">Prohibited term</div>`;
-    html += `<div class="tt-desc">${escapeHtml(vio.description)}</div>`;
-    html += `<div class="tt-detail">${escapeHtml(vio.detail)}</div>`;
+function buildVioCardHTML(vio) {
+  let h = `<div class="card-header"><span class="card-badge card-badge-vio">Prohibited term</span></div>`;
+  h += `<div class="card-desc">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
+  return h;
+}
 
-  } else if (isViolation) {
-    html += `<div class="tt-type">Style violation</div>`;
-    for (const v of para.violations.filter(v => !v.find)) {
-      html += `<div class="tt-desc">${escapeHtml(v.description)}</div>`;
-      html += `<div class="tt-detail">${escapeHtml(v.detail)}</div>`;
+function buildStyleVioCardHTML(vio) {
+  let h = `<div class="card-header"><span class="card-badge card-badge-style">Style issue</span></div>`;
+  h += `<div class="card-desc">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
+  return h;
+}
+
+function refreshCard(paraIndex, ruleId) {
+  const para   = reportData.paragraphs.find(p => p.index === paraIndex);
+  const change = para?.changes.find(c => c.rule_id === ruleId);
+  if (!para || !change) return;
+
+  let card = null;
+  $("sidebar-list").querySelectorAll(`.change-card[data-para-index="${paraIndex}"]`)
+    .forEach(c => { if (c.dataset.ruleId === ruleId) card = c; });
+  if (!card) return;
+
+  const state = changeState(paraIndex, ruleId);
+  card.classList.remove("accepted", "rejected");
+  if (state !== "pending") card.classList.add(state);
+  card.innerHTML = buildChangeCardHTML(paraIndex, change);
+}
+
+function activateCard(paraIndex, ruleId, cardType) {
+  // Clear previous active state
+  if (_activeCard) _activeCard.classList.remove("active");
+  document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
+    .forEach(s => s.classList.remove("active-change"));
+  document.querySelectorAll(".doc-para.para-highlight")
+    .forEach(s => s.classList.remove("para-highlight"));
+
+  // Activate the clicked card
+  let card = null;
+  $("sidebar-list").querySelectorAll(`.change-card[data-para-index="${paraIndex}"]`)
+    .forEach(c => { if (c.dataset.ruleId === ruleId) card = c; });
+  if (card) { card.classList.add("active"); _activeCard = card; }
+
+  // Highlight in document
+  const docPara = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
+  if (!docPara) return;
+
+  if (cardType === "change") {
+    docPara.querySelectorAll(".change-mark")
+      .forEach(s => { if (s.dataset.ruleId === ruleId) s.classList.add("active-change"); });
+  } else if (cardType === "violation") {
+    docPara.querySelectorAll(".vio-mark")
+      .forEach(s => { if (s.dataset.ruleId === ruleId) s.classList.add("active-change"); });
+  } else {
+    docPara.classList.add("para-highlight");
+  }
+
+  // Scroll document panel to the paragraph
+  docPara.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// Sidebar click handler (event delegation)
+$("sidebar-list").addEventListener("click", e => {
+  const btn  = e.target.closest(".card-btn[data-action]");
+  const card = e.target.closest(".change-card");
+  if (!card) return;
+
+  const paraIndex = +card.dataset.paraIndex;
+  const ruleId    = card.dataset.ruleId;
+  const cardType  = card.dataset.cardType;
+
+  if (btn) {
+    const action = btn.dataset.action;
+    if (action === "accept") {
+      accepted.set(acceptedKey(paraIndex, ruleId), true);
+    } else if (action === "reject") {
+      accepted.set(acceptedKey(paraIndex, ruleId), false);
     }
+    refreshPara(paraIndex);
+    refreshCard(paraIndex, ruleId);
+    // Remove highlight since the span may now be gone
+    document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
+      .forEach(s => s.classList.remove("active-change"));
+  } else {
+    activateCard(paraIndex, ruleId, cardType);
   }
-
-  if (!html) return;
-  _tooltip.innerHTML = html;
-  _tooltip.hidden = false;
-  positionTooltip(anchor);
-}
-
-function positionTooltip(anchor) {
-  const rect = anchor.getBoundingClientRect();
-  const tw   = _tooltip.offsetWidth  || 240;
-  const th   = _tooltip.offsetHeight || 110;
-
-  let top  = rect.bottom + 8;
-  let left = rect.left;
-
-  if (top + th > window.innerHeight - 16) top = rect.top - th - 8;
-  if (left + tw > window.innerWidth  - 12) left = window.innerWidth - tw - 12;
-  if (left < 8) left = 8;
-
-  _tooltip.style.top  = top  + "px";
-  _tooltip.style.left = left + "px";
-}
-
-function hideTooltip() { _tooltip.hidden = true; }
-
-// Show on hover
-document.addEventListener("mouseover", e => {
-  const t = e.target.closest?.(".change-mark, .vio-mark, .vio-badge");
-  if (t) { clearTimeout(_ttHideTimer); showTooltip(t); }
-});
-
-// Hide when leaving (unless entering the tooltip itself)
-document.addEventListener("mouseout", e => {
-  const t = e.target.closest?.(".change-mark, .vio-mark, .vio-badge");
-  if (t && !e.relatedTarget?.closest?.("#change-tooltip")) {
-    _ttHideTimer = setTimeout(hideTooltip, 400);
-  }
-});
-
-_tooltip.addEventListener("mouseenter", () => clearTimeout(_ttHideTimer));
-_tooltip.addEventListener("mouseleave", () => { _ttHideTimer = setTimeout(hideTooltip, 240); });
-
-// Tooltip button actions
-_tooltip.addEventListener("click", e => {
-  const btn = e.target.closest(".tt-btn");
-  if (!btn) return;
-  const paraIndex = +btn.dataset.para;
-  const ruleId    = btn.dataset.rule;
-  const action    = btn.dataset.action;
-
-  if (action === "accept") {
-    accepted.set(acceptedKey(paraIndex, ruleId), true);
-  } else if (action === "reject") {
-    accepted.set(acceptedKey(paraIndex, ruleId), false);
-  }
-
-  refreshPara(paraIndex);
-  hideTooltip();
 });
 
 // ---------------------------------------------------------------------------
@@ -426,6 +479,8 @@ $("accept-all-btn").addEventListener("click", () => {
     }
   }
   renderDocument(reportData.paragraphs);
+  renderSidebar(reportData);
+  _activeCard = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -447,11 +502,11 @@ $("back-btn").addEventListener("click", () => {
   $("review-section").hidden = true;
   $("upload-section").hidden = false;
   sessionId = null; reportData = null; accepted.clear();
+  _activeCard = null;
   $("upload-form").reset();
   fileDropLabel.textContent = "Drop your file here, or click to browse";
   fileDropLabel.classList.remove("has-file");
   submitBtn.disabled = true;
-  hideTooltip();
 });
 
 // ---------------------------------------------------------------------------

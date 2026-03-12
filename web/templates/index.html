@@ -81,15 +81,18 @@
       </div>
     </div>
 
-    <!-- Single document page -->
-    <div class="doc-viewer-wrap">
-      <div class="doc-pane" id="document-column"></div>
+    <!-- Document + suggestions sidebar -->
+    <div class="doc-layout">
+      <div class="doc-scroll" id="doc-scroll">
+        <div class="doc-pane" id="document-column"></div>
+      </div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">Suggestions</div>
+        <div id="sidebar-list"></div>
+      </aside>
     </div>
 
   </div>
-
-  <!-- ── Hover tooltip ───────────────────────────────────────────────── -->
-  <div id="change-tooltip" class="change-tooltip" hidden></div>
 
   <!-- ── Loading overlay ─────────────────────────────────────────────── -->
   <div id="loading-overlay" hidden>
