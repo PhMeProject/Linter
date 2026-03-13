@@ -18,7 +18,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from brand_linter.executor import run as lint_run
 from brand_linter.loader import load_template
-from brand_linter.models import TextSubstitutionRule, TextProhibitionRule
+from brand_linter.models import Bucket, TextSubstitutionRule, TextProhibitionRule, StyleRule
 from brand_linter.parser import parse_document
 from brand_linter.writer import build_corrected_document
 
@@ -75,6 +75,16 @@ def _build_violation_details(violations, rule_map: dict) -> list[dict]:
             detail["find"] = rule.find
             detail["case_sensitive"] = rule.case_sensitive
             detail["whole_word"] = rule.whole_word
+        elif isinstance(rule, StyleRule) and rule.bucket == Bucket.ALWAYS:
+            # Include the required values so the frontend can apply them visually
+            fix: dict = {}
+            if rule.require.font_name  is not None: fix["font_name"]  = rule.require.font_name
+            if rule.require.font_size  is not None: fix["font_size"]  = rule.require.font_size
+            if rule.require.bold       is not None: fix["bold"]       = rule.require.bold
+            if rule.require.italic     is not None: fix["italic"]     = rule.require.italic
+            if rule.require.color_hex  is not None: fix["color_hex"]  = rule.require.color_hex
+            if fix:
+                detail["fix"] = fix
         result.append(detail)
     return result
 

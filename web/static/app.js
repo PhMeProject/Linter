@@ -10,6 +10,10 @@ let reportData = null;
 // "paraIndex::ruleId" → true (accepted) | false (rejected) | not set (pending)
 const accepted = new Map();
 
+// paraIndex → {font_name?, font_size?, bold?, italic?, color_hex?}
+// Stores accepted style-violation fixes so renderDocument can re-apply them.
+const fixedParaStyles = new Map();
+
 // ---------------------------------------------------------------------------
 // DOM helpers
 // ---------------------------------------------------------------------------
@@ -85,7 +89,8 @@ $("upload-form").addEventListener("submit", async e => {
 function renderReview(data) {
   reportData = data;
   sessionId  = data.session_id;
-  accepted.clear(); // everything starts as pending
+  accepted.clear();        // everything starts as pending
+  fixedParaStyles.clear(); // no accepted style fixes yet
 
   renderSummary(data);
   renderDocument(data.paragraphs);
@@ -181,6 +186,20 @@ function applyDocStyle(div, para) {
   if (para.italic === true)               parts.push("font-style: italic");
   if (para.color_hex)                     parts.push(`color: #${para.color_hex}`);
   if (parts.length) div.setAttribute("style", parts.join("; "));
+
+  // Overlay any accepted style-violation fixes (applied after base styles
+  // so they take precedence and survive a full renderDocument rebuild).
+  const fix = fixedParaStyles.get(para.index);
+  if (fix) {
+    if (fix.font_name  !== undefined) div.style.fontFamily  = fix.font_name;
+    if (fix.font_size  !== undefined) {
+      const px = Math.round(fix.font_size * 1.25);
+      if (px > 8 && px < 28) div.style.fontSize = `${px}px`;
+    }
+    if (fix.bold       !== undefined) div.style.fontWeight  = fix.bold ? "700" : "400";
+    if (fix.italic     !== undefined) div.style.fontStyle   = fix.italic ? "italic" : "normal";
+    if (fix.color_hex  !== undefined) div.style.color       = `#${fix.color_hex}`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +325,24 @@ function refreshPara(paraIndex) {
   if (!para) return;
   const div = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
   if (div) div.innerHTML = buildParaHtml(para);
+}
+
+// Apply a style fix object directly to a document paragraph element.
+// Also stores it in fixedParaStyles so renderDocument can re-apply on rebuild.
+function applyFixToDocPara(paraIndex, fix) {
+  if (!fix) return;
+  const merged = Object.assign(fixedParaStyles.get(paraIndex) || {}, fix);
+  fixedParaStyles.set(paraIndex, merged);
+  const div = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
+  if (!div) return;
+  if (fix.font_name  !== undefined) div.style.fontFamily  = fix.font_name;
+  if (fix.font_size  !== undefined) {
+    const px = Math.round(fix.font_size * 1.25);
+    if (px > 8 && px < 28) div.style.fontSize = `${px}px`;
+  }
+  if (fix.bold       !== undefined) div.style.fontWeight  = fix.bold ? "700" : "400";
+  if (fix.italic     !== undefined) div.style.fontStyle   = fix.italic ? "italic" : "normal";
+  if (fix.color_hex  !== undefined) div.style.color       = `#${fix.color_hex}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,8 +602,13 @@ function refreshVioCard(paraIndex, ruleId) {
 
 window.acceptViolation = function(paraIndex, ruleId) {
   accepted.set(acceptedKey(paraIndex, ruleId), "accepted");
+  // Apply the formatting fix (font, size, color, bold, italic) if present
+  const para = reportData.paragraphs.find(p => p.index === paraIndex);
+  const vio  = para?.violations.find(v => v.rule_id === ruleId);
+  if (vio?.fix) applyFixToDocPara(paraIndex, vio.fix);
   refreshPara(paraIndex);
   refreshVioCard(paraIndex, ruleId);
+  flashPara(paraIndex);
 };
 
 window.dismissViolation = function(paraIndex, ruleId) {
