@@ -382,19 +382,29 @@ function renderSidebar(data) {
 
 function buildChangeCardHTML(paraIndex, change) {
   const state = changeState(paraIndex, change.rule_id);
+  // Rule IDs are alphanumeric+hyphens — safe to single-quote in onclick
+  const pi = paraIndex;
+  const ri = change.rule_id;
+
   let h = `<div class="card-header"><span class="card-badge card-badge-change">Suggested change</span></div>`;
   h += `<div class="card-desc">${escapeHtml(change.description)}</div>`;
-  if (change.find && change.replace) {
+
+  if (change.find) {
+    const findHtml    = escapeHtml(change.find);
+    const replaceHtml = escapeHtml(change.replace || "");
+    const struck      = state !== "pending";
+    const arrow       = state === "rejected" ? "&#10005;" : "&#8594;";
     h += `<div class="card-rule">
-      <span class="tt-del">${escapeHtml(change.find)}</span>
-      <span class="tt-arr">→</span>
-      <span class="tt-ins">${escapeHtml(change.replace)}</span>
+      <span class="tt-del${struck ? " tt-struck" : ""}">${findHtml}</span>
+      <span class="tt-arr">${arrow}</span>
+      <span class="tt-ins${state === "rejected" ? " tt-struck" : ""}">${replaceHtml}</span>
     </div>`;
   }
+
   if (state === "pending") {
     h += `<div class="card-actions">
-      <button class="card-btn card-reject-btn" data-action="reject">Reject</button>
-      <button class="card-btn card-accept-btn" data-action="accept">&#10003; Accept</button>
+      <button class="card-btn card-reject-btn" onclick="event.stopPropagation();rejectChange(${pi},'${ri}')">&#10005; Reject</button>
+      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();acceptChange(${pi},'${ri}')">&#10003; Accept</button>
     </div>`;
   } else if (state === "accepted") {
     h += `<div class="card-status card-accepted">&#10003; Accepted</div>`;
@@ -466,34 +476,34 @@ function activateCard(paraIndex, ruleId, cardType) {
   docPara.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-// Sidebar click handler (event delegation)
+// Sidebar click handler — card activation only (buttons use onclick globals below)
 $("sidebar-list").addEventListener("click", e => {
-  const btn  = e.target.closest(".card-btn[data-action]");
+  if (e.target.closest(".card-btn")) return; // let onclick handle button clicks
   const card = e.target.closest(".change-card");
   if (!card) return;
-
   const paraIndex = +card.dataset.paraIndex;
   const ruleId    = card.dataset.ruleId;
   const cardType  = card.dataset.cardType;
-
-  if (btn) {
-    const action = btn.dataset.action;
-    if (action === "accept") {
-      accepted.set(acceptedKey(paraIndex, ruleId), true);
-    } else if (action === "reject") {
-      accepted.set(acceptedKey(paraIndex, ruleId), false);
-    }
-    refreshPara(paraIndex);
-    refreshCard(paraIndex, ruleId);
-    // Remove highlight since the span may now be gone
-    document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
-      .forEach(s => s.classList.remove("active-change"));
-    // Flash the paragraph green on accept so the edit is visible
-    if (action === "accept") flashPara(paraIndex);
-  } else {
-    activateCard(paraIndex, ruleId, cardType);
-  }
+  activateCard(paraIndex, ruleId, cardType);
 });
+
+// Global accept / reject — called directly from onclick attributes in cards
+window.acceptChange = function(paraIndex, ruleId) {
+  accepted.set(acceptedKey(paraIndex, ruleId), true);
+  refreshPara(paraIndex);
+  refreshCard(paraIndex, ruleId);
+  document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
+    .forEach(s => s.classList.remove("active-change"));
+  flashPara(paraIndex);
+};
+
+window.rejectChange = function(paraIndex, ruleId) {
+  accepted.set(acceptedKey(paraIndex, ruleId), false);
+  refreshPara(paraIndex);
+  refreshCard(paraIndex, ruleId);
+  document.querySelectorAll(".change-mark.active-change")
+    .forEach(s => s.classList.remove("active-change"));
+};
 
 // ---------------------------------------------------------------------------
 // Accept all
