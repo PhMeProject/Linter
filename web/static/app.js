@@ -314,12 +314,16 @@ function renderSidebar(data) {
   const list = $("sidebar-list");
   list.innerHTML = "";
 
+  let changeCount = 0;
+  let issueCount  = 0;
+
   for (const para of data.paragraphs) {
     // Change cards (one per unique rule per paragraph)
     const seenChanges = new Set();
     for (const change of para.changes) {
       if (!change.find || seenChanges.has(change.rule_id)) continue;
       seenChanges.add(change.rule_id);
+      changeCount++;
       const card = document.createElement("div");
       card.className = "change-card";
       card.dataset.paraIndex = para.index;
@@ -336,6 +340,7 @@ function renderSidebar(data) {
     for (const vio of para.violations) {
       if (!vio.find || seenVios.has(vio.rule_id)) continue;
       seenVios.add(vio.rule_id);
+      issueCount++;
       const card = document.createElement("div");
       card.className = "change-card";
       card.dataset.paraIndex = para.index;
@@ -350,6 +355,7 @@ function renderSidebar(data) {
     for (const vio of para.violations) {
       if (vio.find || seenStyle.has(vio.rule_id)) continue;
       seenStyle.add(vio.rule_id);
+      issueCount++;
       const card = document.createElement("div");
       card.className = "change-card";
       card.dataset.paraIndex = para.index;
@@ -358,6 +364,15 @@ function renderSidebar(data) {
       card.innerHTML = buildStyleVioCardHTML(vio);
       list.appendChild(card);
     }
+  }
+
+  // Update header with counts so it's clear what was detected
+  const hdr = $("sidebar-header");
+  if (hdr) {
+    const parts = [];
+    if (changeCount) parts.push(`${changeCount} change${changeCount !== 1 ? "s" : ""}`);
+    if (issueCount)  parts.push(`${issueCount} issue${issueCount  !== 1 ? "s" : ""}`);
+    hdr.textContent = parts.length ? `Suggestions — ${parts.join(", ")}` : "Suggestions";
   }
 
   if (list.children.length === 0) {
