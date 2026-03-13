@@ -327,22 +327,15 @@ function refreshPara(paraIndex) {
   if (div) div.innerHTML = buildParaHtml(para);
 }
 
-// Apply a style fix object directly to a document paragraph element.
-// Also stores it in fixedParaStyles so renderDocument can re-apply on rebuild.
-function applyFixToDocPara(paraIndex, fix) {
-  if (!fix) return;
-  const merged = Object.assign(fixedParaStyles.get(paraIndex) || {}, fix);
-  fixedParaStyles.set(paraIndex, merged);
-  const div = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
-  if (!div) return;
-  if (fix.font_name  !== undefined) div.style.fontFamily  = fix.font_name;
-  if (fix.font_size  !== undefined) {
-    const px = Math.round(fix.font_size * 1.25);
-    if (px > 8 && px < 28) div.style.fontSize = `${px}px`;
-  }
-  if (fix.bold       !== undefined) div.style.fontWeight  = fix.bold ? "700" : "400";
-  if (fix.italic     !== undefined) div.style.fontStyle   = fix.italic ? "italic" : "normal";
-  if (fix.color_hex  !== undefined) div.style.color       = `#${fix.color_hex}`;
+// Fully rebuild a paragraph element in place (replaces the DOM node).
+// Used after accepting a style violation so applyDocStyle re-runs and
+// picks up the fix from fixedParaStyles in one clean pass.
+function refreshParaFull(paraIndex) {
+  const para = reportData.paragraphs.find(p => p.index === paraIndex);
+  if (!para) return;
+  const old = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
+  if (!old) return;
+  old.replaceWith(buildDocPara(para));
 }
 
 // ---------------------------------------------------------------------------
@@ -602,11 +595,15 @@ function refreshVioCard(paraIndex, ruleId) {
 
 window.acceptViolation = function(paraIndex, ruleId) {
   accepted.set(acceptedKey(paraIndex, ruleId), "accepted");
-  // Apply the formatting fix (font, size, color, bold, italic) if present
+  // Store any style fix so applyDocStyle picks it up during the full rebuild
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   const vio  = para?.violations.find(v => v.rule_id === ruleId);
-  if (vio?.fix) applyFixToDocPara(paraIndex, vio.fix);
-  refreshPara(paraIndex);
+  if (vio?.fix) {
+    fixedParaStyles.set(paraIndex,
+      Object.assign(fixedParaStyles.get(paraIndex) || {}, vio.fix));
+  }
+  // Full element rebuild: applyDocStyle runs fresh and applies fixedParaStyles
+  refreshParaFull(paraIndex);
   refreshVioCard(paraIndex, ruleId);
   flashPara(paraIndex);
 };
