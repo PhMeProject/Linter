@@ -346,7 +346,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "violation";
-      card.innerHTML = buildVioCardHTML(vio);
+      if (accepted.get(acceptedKey(para.index, vio.rule_id)) === true) card.classList.add("accepted");
+      card.innerHTML = buildVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
 
@@ -361,7 +362,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "style";
-      card.innerHTML = buildStyleVioCardHTML(vio);
+      if (accepted.get(acceptedKey(para.index, vio.rule_id)) === true) card.classList.add("accepted");
+      card.innerHTML = buildStyleVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
   }
@@ -414,17 +416,37 @@ function buildChangeCardHTML(paraIndex, change) {
   return h;
 }
 
-function buildVioCardHTML(vio) {
+function buildVioCardHTML(vio, paraIndex) {
+  const pi = paraIndex;
+  const ri = vio.rule_id;
+  const isDismissed = accepted.get(acceptedKey(paraIndex, vio.rule_id)) === true;
   let h = `<div class="card-header"><span class="card-badge card-badge-vio">Prohibited term</span></div>`;
-  h += `<div class="card-desc">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-desc${isDismissed ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
+  if (isDismissed) {
+    h += `<div class="card-status card-accepted">&#10003; Dismissed</div>`;
+  } else {
+    h += `<div class="card-actions">
+      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10003; Dismiss</button>
+    </div>`;
+  }
   return h;
 }
 
-function buildStyleVioCardHTML(vio) {
+function buildStyleVioCardHTML(vio, paraIndex) {
+  const pi = paraIndex;
+  const ri = vio.rule_id;
+  const isDismissed = accepted.get(acceptedKey(paraIndex, vio.rule_id)) === true;
   let h = `<div class="card-header"><span class="card-badge card-badge-style">Style issue</span></div>`;
-  h += `<div class="card-desc">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-desc${isDismissed ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
+  if (isDismissed) {
+    h += `<div class="card-status card-accepted">&#10003; Dismissed</div>`;
+  } else {
+    h += `<div class="card-actions">
+      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10003; Dismiss</button>
+    </div>`;
+  }
   return h;
 }
 
@@ -503,6 +525,25 @@ window.rejectChange = function(paraIndex, ruleId) {
   refreshCard(paraIndex, ruleId);
   document.querySelectorAll(".change-mark.active-change")
     .forEach(s => s.classList.remove("active-change"));
+};
+
+window.dismissViolation = function(paraIndex, ruleId) {
+  accepted.set(acceptedKey(paraIndex, ruleId), true);
+  // Find and rebuild the violation card in place
+  let card = null;
+  $("sidebar-list").querySelectorAll(`.change-card[data-para-index="${paraIndex}"]`)
+    .forEach(c => { if (c.dataset.ruleId === ruleId) card = c; });
+  if (!card) return;
+  card.classList.add("accepted");
+  const para = reportData.paragraphs.find(p => p.index === paraIndex);
+  if (!para) return;
+  const vio = para.violations.find(v => v.rule_id === ruleId);
+  if (!vio) return;
+  if (card.dataset.cardType === "violation") {
+    card.innerHTML = buildVioCardHTML(vio, paraIndex);
+  } else {
+    card.innerHTML = buildStyleVioCardHTML(vio, paraIndex);
+  }
 };
 
 // ---------------------------------------------------------------------------
