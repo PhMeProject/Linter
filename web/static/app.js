@@ -227,6 +227,9 @@ function applyChangeToSegments(segments, change, paraIndex) {
 // Like applyChangeToSegments but for TextProhibitionRule violations —
 // marks the prohibited term with type "violation" in plain segments only.
 function applyViolationToSegments(segments, violation, paraIndex) {
+  // If the violation has been accepted or dismissed, leave the text plain
+  if (accepted.has(acceptedKey(paraIndex, violation.rule_id))) return segments;
+
   const escaped = escapeRegex(violation.find);
   const pattern = violation.whole_word ? `\\b${escaped}\\b` : escaped;
   const flags   = violation.case_sensitive ? "g" : "gi";
@@ -275,9 +278,10 @@ function buildParaHtml(para) {
     return t;
   }).join("");
 
-  // Step 4: append a ⚠ badge for any style-level violations (whole-paragraph,
-  // no specific word to underline)
-  const hasStyleViolations = para.violations.some(v => !v.find);
+  // Step 4: append a ⚠ badge for any unhandled style-level violations
+  const hasStyleViolations = para.violations.some(
+    v => !v.find && !accepted.has(acceptedKey(para.index, v.rule_id))
+  );
   if (hasStyleViolations) {
     html += `<span class="vio-badge" data-para-index="${para.index}" title="">⚠</span>`;
   }
@@ -346,7 +350,9 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "violation";
-      if (accepted.get(acceptedKey(para.index, vio.rule_id)) === true) card.classList.add("accepted");
+      const vioVal = accepted.get(acceptedKey(para.index, vio.rule_id));
+      if (vioVal === "accepted") card.classList.add("accepted");
+      if (vioVal === "dismissed") card.classList.add("rejected");
       card.innerHTML = buildVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -362,7 +368,9 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "style";
-      if (accepted.get(acceptedKey(para.index, vio.rule_id)) === true) card.classList.add("accepted");
+      const styleVal = accepted.get(acceptedKey(para.index, vio.rule_id));
+      if (styleVal === "accepted") card.classList.add("accepted");
+      if (styleVal === "dismissed") card.classList.add("rejected");
       card.innerHTML = buildStyleVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -417,35 +425,43 @@ function buildChangeCardHTML(paraIndex, change) {
 }
 
 function buildVioCardHTML(vio, paraIndex) {
-  const pi = paraIndex;
-  const ri = vio.rule_id;
-  const isDismissed = accepted.get(acceptedKey(paraIndex, vio.rule_id)) === true;
+  const pi  = paraIndex;
+  const ri  = vio.rule_id;
+  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
+  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
   let h = `<div class="card-header"><span class="card-badge card-badge-vio">Prohibited term</span></div>`;
-  h += `<div class="card-desc${isDismissed ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
-  if (isDismissed) {
-    h += `<div class="card-status card-accepted">&#10003; Dismissed</div>`;
-  } else {
+  if (state === "pending") {
     h += `<div class="card-actions">
-      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10003; Dismiss</button>
+      <button class="card-btn card-reject-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10005; Dismiss</button>
+      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();acceptViolation(${pi},'${ri}')">&#10003; Accept</button>
     </div>`;
+  } else if (state === "accepted") {
+    h += `<div class="card-status card-accepted">&#10003; Accepted</div>`;
+  } else {
+    h += `<div class="card-status card-rejected">&#10005; Dismissed</div>`;
   }
   return h;
 }
 
 function buildStyleVioCardHTML(vio, paraIndex) {
-  const pi = paraIndex;
-  const ri = vio.rule_id;
-  const isDismissed = accepted.get(acceptedKey(paraIndex, vio.rule_id)) === true;
+  const pi  = paraIndex;
+  const ri  = vio.rule_id;
+  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
+  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
   let h = `<div class="card-header"><span class="card-badge card-badge-style">Style issue</span></div>`;
-  h += `<div class="card-desc${isDismissed ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
+  h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
-  if (isDismissed) {
-    h += `<div class="card-status card-accepted">&#10003; Dismissed</div>`;
-  } else {
+  if (state === "pending") {
     h += `<div class="card-actions">
-      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10003; Dismiss</button>
+      <button class="card-btn card-reject-btn" onclick="event.stopPropagation();dismissViolation(${pi},'${ri}')">&#10005; Dismiss</button>
+      <button class="card-btn card-accept-btn" onclick="event.stopPropagation();acceptViolation(${pi},'${ri}')">&#10003; Accept</button>
     </div>`;
+  } else if (state === "accepted") {
+    h += `<div class="card-status card-accepted">&#10003; Accepted</div>`;
+  } else {
+    h += `<div class="card-status card-rejected">&#10005; Dismissed</div>`;
   }
   return h;
 }
@@ -527,23 +543,36 @@ window.rejectChange = function(paraIndex, ruleId) {
     .forEach(s => s.classList.remove("active-change"));
 };
 
-window.dismissViolation = function(paraIndex, ruleId) {
-  accepted.set(acceptedKey(paraIndex, ruleId), true);
-  // Find and rebuild the violation card in place
+function refreshVioCard(paraIndex, ruleId) {
   let card = null;
   $("sidebar-list").querySelectorAll(`.change-card[data-para-index="${paraIndex}"]`)
     .forEach(c => { if (c.dataset.ruleId === ruleId) card = c; });
   if (!card) return;
-  card.classList.add("accepted");
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   if (!para) return;
   const vio = para.violations.find(v => v.rule_id === ruleId);
   if (!vio) return;
+  const val = accepted.get(acceptedKey(paraIndex, ruleId));
+  card.classList.remove("accepted", "rejected");
+  if (val === "accepted") card.classList.add("accepted");
+  if (val === "dismissed") card.classList.add("rejected");
   if (card.dataset.cardType === "violation") {
     card.innerHTML = buildVioCardHTML(vio, paraIndex);
   } else {
     card.innerHTML = buildStyleVioCardHTML(vio, paraIndex);
   }
+}
+
+window.acceptViolation = function(paraIndex, ruleId) {
+  accepted.set(acceptedKey(paraIndex, ruleId), "accepted");
+  refreshPara(paraIndex);
+  refreshVioCard(paraIndex, ruleId);
+};
+
+window.dismissViolation = function(paraIndex, ruleId) {
+  accepted.set(acceptedKey(paraIndex, ruleId), "dismissed");
+  refreshPara(paraIndex);
+  refreshVioCard(paraIndex, ruleId);
 };
 
 // ---------------------------------------------------------------------------
