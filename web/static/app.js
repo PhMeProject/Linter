@@ -211,8 +211,8 @@ function applyChangeToSegments(segments, change, paraIndex) {
         // Keep original word, no mark
         out.push({ text: m[0], type: "plain" });
       } else if (state === "accepted") {
-        // Accepted: replacement is plain text — underline gone, clean document
-        out.push({ text: change.replace, type: "plain" });
+        // Accepted: show replacement with green tint so the edit is visible
+        out.push({ text: change.replace, type: "accepted", ruleId: change.rule_id });
       } else {
         // Pending: show original word with blue wavy underline
         out.push({ text: m[0], type: "pending", ruleId: change.rule_id });
