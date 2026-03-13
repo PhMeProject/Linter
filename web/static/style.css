@@ -261,18 +261,19 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 .tt-struck { text-decoration: line-through; opacity: .45; }
 .card-detail { font-size: .74rem; color: var(--text-2); line-height: 1.4; margin-bottom: .3rem; }
 
-.card-actions { display: flex; gap: .4rem; margin-top: .5rem; }
+.card-actions { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
 .card-btn {
-  flex: 1; padding: .35rem .5rem;
+  width: 100%; padding: .4rem .6rem;
   border: 1.5px solid transparent; border-radius: 6px;
   font: inherit; font-size: .75rem; font-weight: 600;
   cursor: pointer; transition: filter .12s, opacity .12s;
+  text-align: center;
 }
 .card-reject-btn {
-  background: rgba(0,0,0,.06); color: var(--text-2);
-  border-color: var(--border-med);
+  background: rgba(255,59,48,.09); color: var(--red);
+  border-color: rgba(255,59,48,.28);
 }
-.card-reject-btn:hover { background: var(--red-bg); color: var(--red); border-color: rgba(255,59,48,.35); }
+.card-reject-btn:hover { background: rgba(255,59,48,.16); }
 .card-accept-btn {
   background: var(--accent); color: #fff;
   border-color: transparent;
