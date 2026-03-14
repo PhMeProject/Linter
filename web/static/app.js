@@ -380,9 +380,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "violation";
-      const vioVal = accepted.get(acceptedKey(para.index, vio.rule_id));
-      if (vioVal === "accepted") card.classList.add("accepted");
-      if (vioVal === "dismissed") card.classList.add("rejected");
+      const vioState = changeState(para.index, vio.rule_id);
+      if (vioState !== "pending") card.classList.add(vioState);
       card.innerHTML = buildVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -398,9 +397,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "style";
-      const styleVal = accepted.get(acceptedKey(para.index, vio.rule_id));
-      if (styleVal === "accepted") card.classList.add("accepted");
-      if (styleVal === "dismissed") card.classList.add("rejected");
+      const styleState = changeState(para.index, vio.rule_id);
+      if (styleState !== "pending") card.classList.add(styleState);
       card.innerHTML = buildStyleVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -455,10 +453,9 @@ function buildChangeCardHTML(paraIndex, change) {
 }
 
 function buildVioCardHTML(vio, paraIndex) {
-  const pi  = paraIndex;
-  const ri  = vio.rule_id;
-  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
-  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
+  const pi    = paraIndex;
+  const ri    = vio.rule_id;
+  const state = changeState(paraIndex, vio.rule_id);
   let h = `<div class="card-header"><span class="card-badge card-badge-vio">Prohibited term</span></div>`;
   h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
@@ -476,10 +473,9 @@ function buildVioCardHTML(vio, paraIndex) {
 }
 
 function buildStyleVioCardHTML(vio, paraIndex) {
-  const pi  = paraIndex;
-  const ri  = vio.rule_id;
-  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
-  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
+  const pi    = paraIndex;
+  const ri    = vio.rule_id;
+  const state = changeState(paraIndex, vio.rule_id);
   let h = `<div class="card-header"><span class="card-badge card-badge-style">Style issue</span></div>`;
   h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
@@ -582,10 +578,9 @@ function refreshVioCard(paraIndex, ruleId) {
   if (!para) return;
   const vio = para.violations.find(v => v.rule_id === ruleId);
   if (!vio) return;
-  const val = accepted.get(acceptedKey(paraIndex, ruleId));
+  const vioState = changeState(paraIndex, ruleId);
   card.classList.remove("accepted", "rejected");
-  if (val === "accepted") card.classList.add("accepted");
-  if (val === "dismissed") card.classList.add("rejected");
+  if (vioState !== "pending") card.classList.add(vioState);
   if (card.dataset.cardType === "violation") {
     card.innerHTML = buildVioCardHTML(vio, paraIndex);
   } else {
@@ -594,7 +589,7 @@ function refreshVioCard(paraIndex, ruleId) {
 }
 
 window.acceptViolation = function(paraIndex, ruleId) {
-  accepted.set(acceptedKey(paraIndex, ruleId), "accepted");
+  accepted.set(acceptedKey(paraIndex, ruleId), true);
   // Store any style fix so applyDocStyle picks it up during the full rebuild
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   const vio  = para?.violations.find(v => v.rule_id === ruleId);
@@ -609,7 +604,7 @@ window.acceptViolation = function(paraIndex, ruleId) {
 };
 
 window.dismissViolation = function(paraIndex, ruleId) {
-  accepted.set(acceptedKey(paraIndex, ruleId), "dismissed");
+  accepted.set(acceptedKey(paraIndex, ruleId), false);
   refreshPara(paraIndex);
   refreshVioCard(paraIndex, ruleId);
 };
@@ -627,7 +622,7 @@ $("accept-all-btn").addEventListener("click", () => {
       changedParas.add(para.index);
     }
     for (const vio of para.violations) {
-      accepted.set(acceptedKey(para.index, vio.rule_id), "accepted");
+      accepted.set(acceptedKey(para.index, vio.rule_id), true);
       changedParas.add(para.index);
       // Stage any style fix so applyDocStyle applies it during renderDocument
       if (vio.fix) {
