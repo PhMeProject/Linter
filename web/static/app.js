@@ -626,11 +626,19 @@ $("accept-all-btn").addEventListener("click", () => {
       accepted.set(acceptedKey(para.index, change.rule_id), true);
       changedParas.add(para.index);
     }
+    for (const vio of para.violations) {
+      accepted.set(acceptedKey(para.index, vio.rule_id), "accepted");
+      changedParas.add(para.index);
+      // Stage any style fix so applyDocStyle applies it during renderDocument
+      if (vio.fix) {
+        fixedParaStyles.set(para.index,
+          Object.assign(fixedParaStyles.get(para.index) || {}, vio.fix));
+      }
+    }
   }
   renderDocument(reportData.paragraphs);
   renderSidebar(reportData);
   _activeCard = null;
-  // Flash every paragraph that had a change so edits are visible
   changedParas.forEach(idx => flashPara(idx));
 });
 
