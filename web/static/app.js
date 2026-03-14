@@ -327,22 +327,15 @@ function refreshPara(paraIndex) {
   if (div) div.innerHTML = buildParaHtml(para);
 }
 
-// Apply a style fix object directly to a document paragraph element.
-// Also stores it in fixedParaStyles so renderDocument can re-apply on rebuild.
-function applyFixToDocPara(paraIndex, fix) {
-  if (!fix) return;
-  const merged = Object.assign(fixedParaStyles.get(paraIndex) || {}, fix);
-  fixedParaStyles.set(paraIndex, merged);
-  const div = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
-  if (!div) return;
-  if (fix.font_name  !== undefined) div.style.fontFamily  = fix.font_name;
-  if (fix.font_size  !== undefined) {
-    const px = Math.round(fix.font_size * 1.25);
-    if (px > 8 && px < 28) div.style.fontSize = `${px}px`;
-  }
-  if (fix.bold       !== undefined) div.style.fontWeight  = fix.bold ? "700" : "400";
-  if (fix.italic     !== undefined) div.style.fontStyle   = fix.italic ? "italic" : "normal";
-  if (fix.color_hex  !== undefined) div.style.color       = `#${fix.color_hex}`;
+// Fully rebuild a paragraph element in place (replaces the DOM node).
+// Used after accepting a style violation so applyDocStyle re-runs and
+// picks up the fix from fixedParaStyles in one clean pass.
+function refreshParaFull(paraIndex) {
+  const para = reportData.paragraphs.find(p => p.index === paraIndex);
+  if (!para) return;
+  const old = document.querySelector(`#document-column .doc-para[data-para-index="${paraIndex}"]`);
+  if (!old) return;
+  old.replaceWith(buildDocPara(para));
 }
 
 // ---------------------------------------------------------------------------
@@ -387,9 +380,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "violation";
-      const vioVal = accepted.get(acceptedKey(para.index, vio.rule_id));
-      if (vioVal === "accepted") card.classList.add("accepted");
-      if (vioVal === "dismissed") card.classList.add("rejected");
+      const vioState = changeState(para.index, vio.rule_id);
+      if (vioState !== "pending") card.classList.add(vioState);
       card.innerHTML = buildVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -405,9 +397,8 @@ function renderSidebar(data) {
       card.dataset.paraIndex = para.index;
       card.dataset.ruleId    = vio.rule_id;
       card.dataset.cardType  = "style";
-      const styleVal = accepted.get(acceptedKey(para.index, vio.rule_id));
-      if (styleVal === "accepted") card.classList.add("accepted");
-      if (styleVal === "dismissed") card.classList.add("rejected");
+      const styleState = changeState(para.index, vio.rule_id);
+      if (styleState !== "pending") card.classList.add(styleState);
       card.innerHTML = buildStyleVioCardHTML(vio, para.index);
       list.appendChild(card);
     }
@@ -462,10 +453,9 @@ function buildChangeCardHTML(paraIndex, change) {
 }
 
 function buildVioCardHTML(vio, paraIndex) {
-  const pi  = paraIndex;
-  const ri  = vio.rule_id;
-  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
-  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
+  const pi    = paraIndex;
+  const ri    = vio.rule_id;
+  const state = changeState(paraIndex, vio.rule_id);
   let h = `<div class="card-header"><span class="card-badge card-badge-vio">Prohibited term</span></div>`;
   h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
@@ -483,10 +473,9 @@ function buildVioCardHTML(vio, paraIndex) {
 }
 
 function buildStyleVioCardHTML(vio, paraIndex) {
-  const pi  = paraIndex;
-  const ri  = vio.rule_id;
-  const val = accepted.get(acceptedKey(paraIndex, vio.rule_id));
-  const state = val === "accepted" ? "accepted" : val === "dismissed" ? "dismissed" : "pending";
+  const pi    = paraIndex;
+  const ri    = vio.rule_id;
+  const state = changeState(paraIndex, vio.rule_id);
   let h = `<div class="card-header"><span class="card-badge card-badge-style">Style issue</span></div>`;
   h += `<div class="card-desc${state !== "pending" ? " tt-struck" : ""}">${escapeHtml(vio.description)}</div>`;
   h += `<div class="card-detail">${escapeHtml(vio.detail)}</div>`;
@@ -589,10 +578,9 @@ function refreshVioCard(paraIndex, ruleId) {
   if (!para) return;
   const vio = para.violations.find(v => v.rule_id === ruleId);
   if (!vio) return;
-  const val = accepted.get(acceptedKey(paraIndex, ruleId));
+  const vioState = changeState(paraIndex, ruleId);
   card.classList.remove("accepted", "rejected");
-  if (val === "accepted") card.classList.add("accepted");
-  if (val === "dismissed") card.classList.add("rejected");
+  if (vioState !== "pending") card.classList.add(vioState);
   if (card.dataset.cardType === "violation") {
     card.innerHTML = buildVioCardHTML(vio, paraIndex);
   } else {
@@ -601,18 +589,22 @@ function refreshVioCard(paraIndex, ruleId) {
 }
 
 window.acceptViolation = function(paraIndex, ruleId) {
-  accepted.set(acceptedKey(paraIndex, ruleId), "accepted");
-  // Apply the formatting fix (font, size, color, bold, italic) if present
+  accepted.set(acceptedKey(paraIndex, ruleId), true);
+  // Store any style fix so applyDocStyle picks it up during the full rebuild
   const para = reportData.paragraphs.find(p => p.index === paraIndex);
   const vio  = para?.violations.find(v => v.rule_id === ruleId);
-  if (vio?.fix) applyFixToDocPara(paraIndex, vio.fix);
-  refreshPara(paraIndex);
+  if (vio?.fix) {
+    fixedParaStyles.set(paraIndex,
+      Object.assign(fixedParaStyles.get(paraIndex) || {}, vio.fix));
+  }
+  // Full element rebuild: applyDocStyle runs fresh and applies fixedParaStyles
+  refreshParaFull(paraIndex);
   refreshVioCard(paraIndex, ruleId);
   flashPara(paraIndex);
 };
 
 window.dismissViolation = function(paraIndex, ruleId) {
-  accepted.set(acceptedKey(paraIndex, ruleId), "dismissed");
+  accepted.set(acceptedKey(paraIndex, ruleId), false);
   refreshPara(paraIndex);
   refreshVioCard(paraIndex, ruleId);
 };
@@ -629,11 +621,19 @@ $("accept-all-btn").addEventListener("click", () => {
       accepted.set(acceptedKey(para.index, change.rule_id), true);
       changedParas.add(para.index);
     }
+    for (const vio of para.violations) {
+      accepted.set(acceptedKey(para.index, vio.rule_id), true);
+      changedParas.add(para.index);
+      // Stage any style fix so applyDocStyle applies it during renderDocument
+      if (vio.fix) {
+        fixedParaStyles.set(para.index,
+          Object.assign(fixedParaStyles.get(para.index) || {}, vio.fix));
+      }
+    }
   }
   renderDocument(reportData.paragraphs);
   renderSidebar(reportData);
   _activeCard = null;
-  // Flash every paragraph that had a change so edits are visible
   changedParas.forEach(idx => flashPara(idx));
 });
 
