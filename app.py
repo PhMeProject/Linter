@@ -97,7 +97,48 @@ def _init_db() -> None:
             )
         """)
 
+
+def _migrate_json_templates(con: sqlite3.Connection) -> None:
+    """One-time import: pull any user_templates/*.json files into SQLite.
+
+    Files written by the old file-based storage layer are inserted using
+    INSERT OR IGNORE so already-migrated rows are never overwritten.
+    """
+    json_dir = Path(__file__).parent / "user_templates"
+    if not json_dir.is_dir():
+        return
+    for p in sorted(json_dir.glob("*.json")):
+        tid = p.stem
+        if not tid or tid.startswith("."):
+            continue
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        template_name = doc.get("template_name", "")
+        ui = doc.get("_ui") or {"template_name": template_name, "typography": {}}
+        con.execute(
+            """
+            INSERT OR IGNORE INTO user_templates
+                (id, template_name, doc_json, ui_json, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                tid,
+                template_name,
+                json.dumps(doc, ensure_ascii=False),
+                json.dumps(ui, ensure_ascii=False),
+                p.stat().st_mtime,
+            ),
+        )
+
 _init_db()
+
+# Migrate templates saved by the old file-based storage into SQLite.
+# Skipped when DATABASE_PATH is set (test environments use isolated temp DBs).
+if not os.environ.get("DATABASE_PATH"):
+    with _db() as _con:
+        _migrate_json_templates(_con)
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
