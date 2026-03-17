@@ -101,20 +101,16 @@ def _init_db() -> None:
 def _migrate_json_templates(con: sqlite3.Connection) -> None:
     """One-time import: pull any user_templates/*.json files into SQLite.
 
+    Also recovers templates from UPLOAD_DIR tpl_*.json cache files (written
+    by _find_template_path when linting) in case the DB was ever cleared.
     Files written by the old file-based storage layer are inserted using
     INSERT OR IGNORE so already-migrated rows are never overwritten.
     """
-    json_dir = Path(__file__).parent / "user_templates"
-    if not json_dir.is_dir():
-        return
-    for p in sorted(json_dir.glob("*.json")):
-        tid = p.stem
-        if not tid or tid.startswith("."):
-            continue
+    def _insert_json_file(p: Path, tid: str) -> None:
         try:
             doc = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
-            continue
+            return
         template_name = doc.get("template_name", "")
         ui = doc.get("_ui") or {"template_name": template_name, "typography": {}}
         con.execute(
@@ -131,6 +127,20 @@ def _migrate_json_templates(con: sqlite3.Connection) -> None:
                 p.stat().st_mtime,
             ),
         )
+
+    # 1. Old file-based storage (user_templates/*.json)
+    json_dir = Path(__file__).parent / "user_templates"
+    if json_dir.is_dir():
+        for p in sorted(json_dir.glob("*.json")):
+            tid = p.stem
+            if tid and not tid.startswith("."):
+                _insert_json_file(p, tid)
+
+    # 2. Lint-session cache (UPLOAD_DIR/tpl_*.json) — recovery fallback
+    for p in sorted(UPLOAD_DIR.glob("tpl_*.json")):
+        tid = p.stem[4:]  # strip "tpl_" prefix
+        if tid and not tid.startswith("."):
+            _insert_json_file(p, tid)
 
 _init_db()
 
