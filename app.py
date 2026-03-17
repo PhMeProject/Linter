@@ -49,15 +49,17 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 def _resolve_db_path() -> Path:
     env = os.environ.get("DATABASE_PATH", "").strip()
     if env:
-        p = Path(env)
+        p = Path(env).resolve()
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
-    local = Path("brand_linter.db")
+    # Always resolve to an absolute path so SQLite opens the same file
+    # regardless of the process working directory at connection time.
+    local = (Path(__file__).parent / "brand_linter.db").resolve()
     try:
         local.touch()
         return local
     except OSError:
-        tmp = Path("/tmp/brand_linter_state/brand_linter.db")
+        tmp = Path("/tmp/brand_linter_state/brand_linter.db").resolve()
         tmp.parent.mkdir(parents=True, exist_ok=True)
         return tmp
 
@@ -76,6 +78,9 @@ def _db():
     try:
         yield con
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
 
