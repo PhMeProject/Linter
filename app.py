@@ -288,7 +288,7 @@ def _build_template_json(settings: dict) -> dict:
 
     always_rules = []
     for section_key, style_name in _STYLE_NAMES.items():
-        section = typography.get(section_key, {})
+        section = typography.get(section_key) or {}
         require: dict = {}
 
         font_family = section.get("font_family") or _TYPO_DEFAULTS["font_family"]
