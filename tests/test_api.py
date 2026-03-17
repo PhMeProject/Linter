@@ -327,3 +327,94 @@ class TestBuildTemplateJson:
     def test_template_name_falls_back_to_default(self):
         doc = self.build({"template_name": "", "typography": {}})
         assert doc["template_name"] == "Custom Rules"
+
+
+# ---------------------------------------------------------------------------
+# Home page (GET /)
+# ---------------------------------------------------------------------------
+
+class TestHomePage:
+    def test_no_templates_shows_notice(self, client):
+        r = client.get("/")
+        assert r.status_code == 200
+        html = r.get_data(as_text=True)
+        assert "No templates saved yet" in html
+        assert 'href="/settings"' in html
+        # No <select> rendered when list is empty
+        assert 'id="template-select"' not in html
+
+    def test_user_templates_appear_in_dropdown(self, client):
+        client.post("/api/templates", content_type="application/json",
+                    data=json.dumps(_payload("Acme Brand")))
+        r = client.get("/")
+        html = r.get_data(as_text=True)
+        assert "Acme Brand" in html
+        assert 'id="template-select"' in html
+        # Bundled demo templates must not appear
+        assert "Newsletter" not in html
+
+    def test_multiple_user_templates_all_listed(self, client):
+        client.post("/api/templates", content_type="application/json",
+                    data=json.dumps(_payload("Alpha")))
+        client.post("/api/templates", content_type="application/json",
+                    data=json.dumps(_payload("Beta")))
+        html = client.get("/").get_data(as_text=True)
+        assert "Alpha" in html
+        assert "Beta" in html
+
+
+# ---------------------------------------------------------------------------
+# Lint with user template (integration)
+# ---------------------------------------------------------------------------
+
+class TestLintWithUserTemplate:
+    """Verify the full save-then-lint flow works end-to-end."""
+
+    def _make_minimal_docx(self, tmp_path: Path) -> Path:
+        """Create a tiny valid .docx to upload."""
+        from docx import Document
+        doc = Document()
+        doc.add_paragraph("Hello world", style="Normal")
+        p = tmp_path / "test.docx"
+        doc.save(str(p))
+        return p
+
+    def test_lint_with_user_template_returns_200(self, client, tmp_path):
+        # Create a template with an H1 Arial rule
+        r = client.post("/api/templates", content_type="application/json",
+                        data=json.dumps(_payload("Corp Brand", h1={
+                            "font_family": "Arial", "font_size": 14,
+                            "font_color": None, "bold": True, "italic": None,
+                        })))
+        tid = r.get_json()["id"]
+
+        docx_path = self._make_minimal_docx(tmp_path)
+        with open(docx_path, "rb") as fh:
+            res = client.post("/lint", data={
+                "template": tid,
+                "file": (fh, "test.docx"),
+            }, content_type="multipart/form-data")
+
+        assert res.status_code == 200
+        body = res.get_json()
+        assert "session_id" in body
+        assert "paragraphs" in body
+
+    def test_lint_unknown_template_returns_400(self, client, tmp_path):
+        docx_path = self._make_minimal_docx(tmp_path)
+        with open(docx_path, "rb") as fh:
+            res = client.post("/lint", data={
+                "template": "00000000-0000-0000-0000-000000000000",
+                "file": (fh, "test.docx"),
+            }, content_type="multipart/form-data")
+        assert res.status_code == 400
+
+    def test_bundled_template_slug_no_longer_resolves(self, client, tmp_path):
+        """newsletter_external must not be accessible via the lint endpoint."""
+        docx_path = self._make_minimal_docx(tmp_path)
+        with open(docx_path, "rb") as fh:
+            res = client.post("/lint", data={
+                "template": "newsletter_external",
+                "file": (fh, "test.docx"),
+            }, content_type="multipart/form-data")
+        assert res.status_code == 400

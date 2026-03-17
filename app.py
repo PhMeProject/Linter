@@ -122,36 +122,25 @@ _sessions: dict[str, dict] = {}
 
 
 def _load_template_list() -> list[dict[str, str]]:
-    """Return [{slug, name}, …] for bundled templates then user templates."""
-    result = []
-    for p in sorted(TEMPLATES_DIR.glob("*.json")):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            name = data.get("template_name", p.stem)
-        except Exception:
-            name = p.stem
-        result.append({"slug": p.stem, "name": name})
+    """Return [{slug, name}, …] for user-created templates only."""
     with _db() as con:
         rows = con.execute(
             "SELECT id, template_name FROM user_templates ORDER BY updated_at"
         ).fetchall()
-    for row in rows:
-        result.append({"slug": row["id"], "name": row["template_name"] or row["id"]})
-    return result
+    return [{"slug": row["id"], "name": row["template_name"] or "(Untitled)"} for row in rows]
 
 
 def _find_template_path(slug: str) -> Path | None:
-    """Return a Path for the loader.  User templates are written to a temp file."""
+    """Return a Path the loader can read.  User templates are written to a temp file."""
     with _db() as con:
         row = con.execute(
             "SELECT doc_json FROM user_templates WHERE id = ?", (slug,)
         ).fetchone()
-    if row:
-        tmp = UPLOAD_DIR / f"tpl_{slug}.json"
-        tmp.write_text(row["doc_json"], encoding="utf-8")
-        return tmp
-    candidate = TEMPLATES_DIR / f"{slug}.json"
-    return candidate if candidate.exists() else None
+    if not row:
+        return None
+    tmp = UPLOAD_DIR / f"tpl_{slug}.json"
+    tmp.write_text(row["doc_json"], encoding="utf-8")
+    return tmp
 
 
 def _write_user_template(tid: str, settings: dict) -> None:

@@ -35,12 +35,14 @@ const fileDropLabel = $("file-drop-label");
 const submitBtn     = $("submit-btn");
 const fileDrop      = $("file-drop");
 
+const hasTemplates = !!$("template-select");
+
 fileInput.addEventListener("change", () => {
   const name = fileInput.files[0]?.name ?? null;
   if (name) {
     fileDropLabel.textContent = name;
     fileDropLabel.classList.add("has-file");
-    submitBtn.disabled = false;
+    if (hasTemplates) submitBtn.disabled = false;
   } else {
     fileDropLabel.textContent = "Drop your file here, or click to browse";
     fileDropLabel.classList.remove("has-file");
