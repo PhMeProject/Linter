@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings – Brand Linter</title>
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=17">
 </head>
 <body>
 
@@ -29,219 +29,265 @@
   <main class="sp-page">
     <div class="sp-container">
 
-      <div class="sp-header-row">
-        <a href="/" class="btn-ghost-sm">&#8592; Back</a>
-        <h1 class="sp-title">Settings</h1>
-      </div>
+      <!-- ══════════════════════════════════════════════════════════════
+           VIEW: TEMPLATE LIST
+           ══════════════════════════════════════════════════════════════ -->
+      <div id="view-list">
 
-      <!-- ── Template Name ───────────────────────────────────────────── -->
-      <div class="sp-card">
-        <p class="sp-card-label">Template Name</p>
-        <input
-          type="text"
-          id="template-name"
-          class="sp-text-input"
-          placeholder="e.g. Acme Corp Brand Standards"
-          autocomplete="off"
-          spellcheck="false"
-        >
-      </div>
+        <div class="sp-header-row sp-header-row--space">
+          <div class="sp-header-left">
+            <a href="/" class="btn-ghost-sm">&#8592; Back</a>
+            <h1 class="sp-title">Settings</h1>
+          </div>
+          <button type="button" id="new-template-btn" class="btn-primary-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Template
+          </button>
+        </div>
 
-      <!-- ── Typography ─────────────────────────────────────────────── -->
-      <div class="sp-card sp-card--flush">
-        <p class="sp-card-label sp-card-label--padded">Typography</p>
+        <div class="sp-card sp-card--flush">
+          <p class="sp-card-label sp-card-label--padded">Saved Templates</p>
+          <div id="template-list-items"></div>
+          <div id="template-list-empty" class="sp-list-empty" hidden>
+            No templates yet. Click "New Template" to create one.
+          </div>
+        </div>
 
-        <div class="accordion">
+      </div><!-- /view-list -->
 
-          <!-- H1 -->
-          <div class="accordion-item" data-section="h1">
-            <button class="accordion-header" type="button">
-              <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              H1
-            </button>
-            <div class="accordion-body" hidden>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Family</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select ff-select">
-                    <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
-                    <option>Cambria</option><option>Garamond</option><option>Georgia</option>
-                    <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
-                    <option>Century Gothic</option>
-                  </select>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           VIEW: EDIT / CREATE FORM
+           ══════════════════════════════════════════════════════════════ -->
+      <div id="view-form" hidden>
+
+        <div class="sp-header-row">
+          <button type="button" id="cancel-btn" class="btn-ghost-sm">&#8592; Cancel</button>
+          <h1 class="sp-title" id="form-title">New Template</h1>
+        </div>
+
+        <!-- Template Name -->
+        <div class="sp-card">
+          <p class="sp-card-label">Template Name</p>
+          <input
+            type="text"
+            id="template-name"
+            class="sp-text-input"
+            placeholder="e.g. Acme Corp Brand Standards"
+            autocomplete="off"
+            spellcheck="false"
+          >
+        </div>
+
+        <!-- Typography -->
+        <div class="sp-card sp-card--flush">
+          <p class="sp-card-label sp-card-label--padded">Typography</p>
+
+          <div class="accordion">
+
+            <!-- H1 -->
+            <div class="accordion-item" data-section="h1">
+              <button class="accordion-header" type="button">
+                <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                H1
+              </button>
+              <div class="accordion-body" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Family</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select ff-select">
+                      <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
+                      <option>Cambria</option><option>Garamond</option><option>Georgia</option>
+                      <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
+                      <option>Century Gothic</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Size</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select fs-select">
-                    <option value="8">8</option><option value="9">9</option><option value="10">10</option>
-                    <option value="11">11</option><option value="12">12</option><option value="14">14</option>
-                    <option value="16">16</option><option value="18">18</option><option value="20">20</option>
-                    <option value="24">24</option><option value="28">28</option><option value="32">32</option>
-                    <option value="36">36</option><option value="48">48</option><option value="72">72</option>
-                    <option value="other">Other…</option>
-                  </select>
-                  <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Size</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select fs-select">
+                      <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+                      <option value="11">11</option><option value="12">12</option><option value="14">14</option>
+                      <option value="16">16</option><option value="18">18</option><option value="20">20</option>
+                      <option value="24">24</option><option value="28">28</option><option value="32">32</option>
+                      <option value="36">36</option><option value="48">48</option><option value="72">72</option>
+                      <option value="other">Other…</option>
+                    </select>
+                    <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Color</span>
-                <div class="sp-row-ctrl sp-color-group">
-                  <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
-                  <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Color</span>
+                  <div class="sp-row-ctrl sp-color-group">
+                    <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
+                    <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Bold</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="bold">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                <div class="sp-row">
+                  <span class="sp-row-label">Bold</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="bold">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="sp-row sp-row--last">
+                  <span class="sp-row-label">Italic</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="italic">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="sp-row sp-row--last">
-                <span class="sp-row-label">Italic</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="italic">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div><!-- /H1 -->
+            </div><!-- /H1 -->
 
-          <!-- Body -->
-          <div class="accordion-item" data-section="body">
-            <button class="accordion-header" type="button">
-              <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              Body
-            </button>
-            <div class="accordion-body" hidden>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Family</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select ff-select">
-                    <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
-                    <option>Cambria</option><option>Garamond</option><option>Georgia</option>
-                    <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
-                    <option>Century Gothic</option>
-                  </select>
+            <!-- Body -->
+            <div class="accordion-item" data-section="body">
+              <button class="accordion-header" type="button">
+                <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                Body
+              </button>
+              <div class="accordion-body" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Family</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select ff-select">
+                      <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
+                      <option>Cambria</option><option>Garamond</option><option>Georgia</option>
+                      <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
+                      <option>Century Gothic</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Size</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select fs-select">
-                    <option value="8">8</option><option value="9">9</option><option value="10">10</option>
-                    <option value="11">11</option><option value="12">12</option><option value="14">14</option>
-                    <option value="16">16</option><option value="18">18</option><option value="20">20</option>
-                    <option value="24">24</option><option value="28">28</option><option value="32">32</option>
-                    <option value="36">36</option><option value="48">48</option><option value="72">72</option>
-                    <option value="other">Other…</option>
-                  </select>
-                  <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Size</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select fs-select">
+                      <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+                      <option value="11">11</option><option value="12">12</option><option value="14">14</option>
+                      <option value="16">16</option><option value="18">18</option><option value="20">20</option>
+                      <option value="24">24</option><option value="28">28</option><option value="32">32</option>
+                      <option value="36">36</option><option value="48">48</option><option value="72">72</option>
+                      <option value="other">Other…</option>
+                    </select>
+                    <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Color</span>
-                <div class="sp-row-ctrl sp-color-group">
-                  <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
-                  <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Color</span>
+                  <div class="sp-row-ctrl sp-color-group">
+                    <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
+                    <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Bold</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="bold">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                <div class="sp-row">
+                  <span class="sp-row-label">Bold</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="bold">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="sp-row sp-row--last">
+                  <span class="sp-row-label">Italic</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="italic">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="sp-row sp-row--last">
-                <span class="sp-row-label">Italic</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="italic">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div><!-- /Body -->
+            </div><!-- /Body -->
 
-          <!-- Captions -->
-          <div class="accordion-item accordion-item--last" data-section="captions">
-            <button class="accordion-header accordion-header--last" type="button">
-              <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              Captions
-            </button>
-            <div class="accordion-body accordion-body--last" hidden>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Family</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select ff-select">
-                    <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
-                    <option>Cambria</option><option>Garamond</option><option>Georgia</option>
-                    <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
-                    <option>Century Gothic</option>
-                  </select>
+            <!-- Captions -->
+            <div class="accordion-item" data-section="captions">
+              <button class="accordion-header" type="button">
+                <svg class="accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+                Captions
+              </button>
+              <div class="accordion-body" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Family</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select ff-select">
+                      <option>Calibri</option><option>Arial</option><option>Times New Roman</option>
+                      <option>Cambria</option><option>Garamond</option><option>Georgia</option>
+                      <option>Helvetica</option><option>Verdana</option><option>Trebuchet MS</option>
+                      <option>Century Gothic</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Size</span>
-                <div class="sp-row-ctrl">
-                  <select class="sp-select fs-select">
-                    <option value="8">8</option><option value="9">9</option><option value="10">10</option>
-                    <option value="11">11</option><option value="12">12</option><option value="14">14</option>
-                    <option value="16">16</option><option value="18">18</option><option value="20">20</option>
-                    <option value="24">24</option><option value="28">28</option><option value="32">32</option>
-                    <option value="36">36</option><option value="48">48</option><option value="72">72</option>
-                    <option value="other">Other…</option>
-                  </select>
-                  <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Size</span>
+                  <div class="sp-row-ctrl">
+                    <select class="sp-select fs-select">
+                      <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+                      <option value="11">11</option><option value="12">12</option><option value="14">14</option>
+                      <option value="16">16</option><option value="18">18</option><option value="20">20</option>
+                      <option value="24">24</option><option value="28">28</option><option value="32">32</option>
+                      <option value="36">36</option><option value="48">48</option><option value="72">72</option>
+                      <option value="other">Other…</option>
+                    </select>
+                    <input type="number" class="sp-number fs-custom" min="6" max="72" placeholder="pt" hidden>
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Font Color</span>
-                <div class="sp-row-ctrl sp-color-group">
-                  <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
-                  <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                <div class="sp-row">
+                  <span class="sp-row-label">Font Color</span>
+                  <div class="sp-row-ctrl sp-color-group">
+                    <input type="text" class="sp-hex color-hex" placeholder="#000000" maxlength="7" value="#000000" spellcheck="false">
+                    <input type="color" class="sp-color-swatch color-picker" value="#000000">
+                  </div>
                 </div>
-              </div>
-              <div class="sp-row">
-                <span class="sp-row-label">Bold</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="bold">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                <div class="sp-row">
+                  <span class="sp-row-label">Bold</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="bold">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="sp-row sp-row--last">
+                  <span class="sp-row-label">Italic</span>
+                  <div class="sp-row-ctrl">
+                    <div class="sp-toggle" data-toggle="italic">
+                      <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
+                      <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="sp-row sp-row--last">
-                <span class="sp-row-label">Italic</span>
-                <div class="sp-row-ctrl">
-                  <div class="sp-toggle" data-toggle="italic">
-                    <button type="button" class="sp-toggle-btn sp-toggle-btn--no" data-value="no">No</button>
-                    <button type="button" class="sp-toggle-btn" data-value="yes">Yes</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div><!-- /Captions -->
+            </div><!-- /Captions -->
 
-        </div><!-- /accordion -->
-      </div><!-- /Typography card -->
+          </div><!-- /accordion -->
+        </div><!-- /Typography card -->
 
-      <div class="sp-save-row">
-        <button type="button" id="save-rules-btn" class="btn-primary sp-save-btn">Save Rules</button>
-      </div>
+        <div class="sp-save-row">
+          <button type="button" id="save-rules-btn" class="btn-primary sp-save-btn">Save Rules</button>
+        </div>
+
+      </div><!-- /view-form -->
 
     </div><!-- /sp-container -->
   </main>
+
+  <!-- ── Delete confirmation overlay ───────────────────────────────── -->
+  <div id="delete-overlay" class="sp-overlay" hidden>
+    <div class="sp-overlay-dialog">
+      <p class="sp-overlay-title">Delete "<span id="delete-name-display"></span>"?</p>
+      <p class="sp-overlay-body">This cannot be undone.</p>
+      <div class="sp-overlay-actions">
+        <button type="button" id="delete-cancel-btn" class="btn-ghost-sm">Cancel</button>
+        <button type="button" id="delete-confirm-btn" class="sp-btn-delete">Delete</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Toast -->
   <div id="toast" class="sp-toast" hidden>
@@ -249,7 +295,7 @@
     Rules saved.
   </div>
 
-  <script src="/static/settings.js?v=1"></script>
+  <script src="/static/settings.js?v=2"></script>
 
 </body>
 </html>
