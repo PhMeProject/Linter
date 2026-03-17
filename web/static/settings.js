@@ -69,9 +69,12 @@ async function loadTemplateList() {
     items.innerHTML = "";
     if (list.length === 0) {
       empty.hidden = false;
+      updateBadge("");
     } else {
       empty.hidden = true;
       list.forEach(t => items.appendChild(buildTemplateRow(t)));
+      // Badge reflects most-recently updated (last in ASC order)
+      updateBadge(list[list.length - 1].template_name || "");
     }
   } catch (_) {
     empty.hidden = false;
@@ -377,9 +380,7 @@ async function confirmDelete() {
   try {
     const res = await fetch(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Delete failed");
-    await loadTemplateList();
-    // Refresh badge in case the deleted template was the most recent
-    await loadBadge();
+    await loadTemplateList(); // also updates badge
   } catch (err) {
     alert("Could not delete: " + err.message);
   }
@@ -399,15 +400,6 @@ function updateBadge(name) {
   } else {
     badge.hidden = true;
   }
-}
-
-async function loadBadge() {
-  try {
-    const res = await fetch("/api/settings");
-    if (!res.ok) return;
-    const { template_name } = await res.json();
-    updateBadge(template_name);
-  } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -471,9 +463,9 @@ function init() {
     if (e.target === $("delete-overlay")) hideDeleteConfirm();
   });
 
-  // Load data
-  loadTemplateList();
-  loadBadge();
+  // Template list and badge are pre-rendered server-side.
+  // loadTemplateList() (which also updates the badge) is called only after
+  // create / update / delete mutations.
 }
 
 init();

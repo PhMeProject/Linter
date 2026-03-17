@@ -12,9 +12,9 @@
     <div class="header-inner">
       <div class="header-logo">&#10003;</div>
       <span class="header-title">Brand Linter</span>
-      <span id="active-ruleset-badge" class="active-ruleset-badge" hidden>
+      <span id="active-ruleset-badge" class="active-ruleset-badge"{% if not templates %} hidden{% endif %}>
         <svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
-        <span id="active-ruleset-name"></span>
+        <span id="active-ruleset-name">{% if templates %}{{ templates[0].name }}{% endif %}</span>
       </span>
     </div>
   </header>

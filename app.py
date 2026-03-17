@@ -411,7 +411,8 @@ def _build_template_json(settings: dict) -> dict:
 
 @app.get("/settings")
 def settings_page():
-    return render_template("settings.html")
+    templates = _load_template_list()
+    return render_template("settings.html", templates=templates)
 
 
 @app.get("/api/settings")
