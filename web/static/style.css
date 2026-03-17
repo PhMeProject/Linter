@@ -165,6 +165,14 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .btn-ghost-sm:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,113,227,.04); }
 
+.no-templates-notice {
+  padding: .65rem .9rem;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: .9rem; color: var(--text-2);
+}
+.no-templates-notice a { color: var(--accent); text-decoration: none; font-weight: 500; }
+.no-templates-notice a:hover { text-decoration: underline; }
+
 .error-banner {
   background: var(--red-bg); color: var(--red);
   border: 1px solid rgba(255,59,48,.2); border-radius: var(--r-sm);

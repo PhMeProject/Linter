@@ -31,11 +31,18 @@
 
         <div class="field">
           <label for="template-select">Brand template</label>
+          {% if templates %}
           <select id="template-select" name="template" required>
             {% for t in templates %}
             <option value="{{ t.slug }}">{{ t.name }}</option>
             {% endfor %}
           </select>
+          {% else %}
+          <div class="no-templates-notice">
+            No templates saved yet.
+            <a href="/settings">Create one in Settings</a> to get started.
+          </div>
+          {% endif %}
         </div>
 
         <div class="field">
@@ -115,7 +122,7 @@
   <script>
     window.BRAND_LINTER = {};
   </script>
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 
 </body>
 </html>
