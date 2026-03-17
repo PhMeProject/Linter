@@ -659,21 +659,27 @@ $("settings-gear-btn").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Active ruleset badge – show saved custom template name in the header
+// Active ruleset badge – mirrors the currently selected template in the header
 // ---------------------------------------------------------------------------
 
-(async function loadActiveRuleset() {
-  try {
-    const res = await fetch("/api/settings");
-    if (!res.ok) return;
-    const { template_name } = await res.json();
-    if (!template_name) return;
-    const badge  = $("active-ruleset-badge");
-    const nameEl = $("active-ruleset-name");
-    if (badge)  { badge.hidden = false; }
-    if (nameEl) { nameEl.textContent = template_name; }
-  } catch (_) {}
-})();
+function updateBadgeFromSelect() {
+  const sel    = $("template-select");
+  const badge  = $("active-ruleset-badge");
+  const nameEl = $("active-ruleset-name");
+  if (!badge) return;
+  const name = sel ? (sel.options[sel.selectedIndex]?.text ?? "") : "";
+  if (name) {
+    if (nameEl) nameEl.textContent = name;
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+
+updateBadgeFromSelect();
+if ($("template-select")) {
+  $("template-select").addEventListener("change", updateBadgeFromSelect);
+}
 
 // ---------------------------------------------------------------------------
 // Back button
