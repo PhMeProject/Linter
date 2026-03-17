@@ -340,9 +340,10 @@ async function saveTemplate() {
       }
     }
     if (!res.ok) throw new Error("Save failed");
+    await loadTemplateList();
+    showListView();
     showToast();
     updateBadge(payload.template_name);
-    await loadTemplateList();             // keep list fresh in the background
   } catch (err) {
     alert("Could not save: " + err.message);
   } finally {
