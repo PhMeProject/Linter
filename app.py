@@ -35,12 +35,17 @@ TEMPLATES_DIR = Path("templates")
 UPLOAD_DIR    = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Keep all runtime-writable state in /tmp so read-only serverless
-# filesystems don't crash the function at startup.
-_TMP_DIR           = Path("/tmp/brand_linter_state")
-USER_TEMPLATES_DIR = _TMP_DIR / "user_templates"
-_TMP_DIR.mkdir(parents=True, exist_ok=True)
-USER_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+# Store user templates in the project directory so they survive server
+# restarts.  Only fall back to /tmp if the project root is read-only
+# (e.g. a locked-down serverless environment — data won't persist there).
+_local_ut = Path("user_templates")
+try:
+    _local_ut.mkdir(parents=True, exist_ok=True)
+    USER_TEMPLATES_DIR = _local_ut
+except OSError:
+    _tmp_ut = Path("/tmp/brand_linter_state/user_templates")
+    _tmp_ut.mkdir(parents=True, exist_ok=True)
+    USER_TEMPLATES_DIR = _tmp_ut
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
