@@ -80,6 +80,28 @@ def load_template(path: Union[str, Path]) -> tuple[str, list[AnyRule]]:
     return _parse_template(raw, source=str(path))
 
 
+def load_template_from_dict(data: dict) -> tuple[str, list[AnyRule]]:
+    """Parse a template from an in-memory dict and return (template_name, rules).
+
+    Identical validation to load_template() but requires no file on disk.
+    Use this when the template JSON has been built in memory (e.g. derived
+    from user settings stored in the database).
+
+    Parameters
+    ----------
+    data:
+        A dict matching the template JSON schema.
+
+    Returns
+    -------
+    template_name : str
+    rules : list of typed rule objects
+    """
+    if not isinstance(data, dict):
+        raise TemplateLoadError("Template data must be a JSON object")
+    return _parse_template(data, source="<db>")
+
+
 # ---------------------------------------------------------------------------
 # Internal parsing
 # ---------------------------------------------------------------------------

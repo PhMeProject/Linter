@@ -8,7 +8,32 @@ POST /lint            upload .docx + template → JSON lint report + session id
 POST /download        session id + accepted rule ids → corrected .docx
 GET  /settings        settings UI
 GET  /api/settings    return current user settings as JSON
-POST /api/settings    save user settings and regenerate custom template
+
+Persistence
+-----------
+Templates are stored in a single SQLite file (brand_linter.db) next to this
+module.  There is exactly ONE source of truth:
+
+    user_templates table
+    ├── id            TEXT PRIMARY KEY   (UUID v4)
+    ├── template_name TEXT               (display name)
+    ├── ui_json       TEXT               (JSON — what the user typed in the form)
+    └── updated_at    REAL               (Unix timestamp)
+
+ui_json is the authoritative record.  The linter-format JSON (doc_json) is
+derived from ui_json at lint time and never stored — this eliminates the
+dual-copy problem that caused "Unknown template" and "Not found" errors.
+
+Moving to a real database
+-------------------------
+Replace _get_db() with a connection to PostgreSQL or MySQL.  All queries use
+standard ANSI SQL.  The one non-portable construct is the upsert:
+
+    INSERT ... ON CONFLICT(id) DO UPDATE SET ...   ← SQLite / PostgreSQL
+    INSERT ... ON DUPLICATE KEY UPDATE ...          ← MySQL equivalent
+
+Everything else — the contextmanager, all routes, all helper functions —
+stays identical.
 """
 
 from __future__ import annotations
@@ -20,11 +45,12 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TypedDict
 
 from flask import Flask, jsonify, render_template, request, send_file
 
 from brand_linter.executor import run as lint_run
-from brand_linter.loader import load_template
+from brand_linter.loader import load_template_from_dict
 from brand_linter.models import Bucket, TextSubstitutionRule, TextProhibitionRule, StyleRule
 from brand_linter.parser import parse_document
 from brand_linter.writer import build_corrected_document
@@ -35,9 +61,45 @@ from brand_linter.writer import build_corrected_document
 
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
-TEMPLATES_DIR = Path("templates")
-UPLOAD_DIR    = Path("/tmp/brand_linter_sessions")
+UPLOAD_DIR = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+
+class TypographySection(TypedDict, total=False):
+    """Typography settings for a single paragraph style (H1, Body, Captions).
+
+    All fields are optional/nullable — None means "no rule enforced for this
+    attribute".  This mirrors exactly what the Settings form sends.
+    """
+    font_family: str | None
+    font_size: float | None
+    font_color: str | None
+    bold: bool | None
+    italic: bool | None
+
+
+class TemplateRecord(TypedDict):
+    """A brand template as stored in the database.
+
+    ui_json in the DB is the serialised form of:
+        {
+            "template_name": str,
+            "typography": {
+                "h1":       TypographySection,
+                "body":     TypographySection,
+                "captions": TypographySection,
+            }
+        }
+    """
+    id: str
+    template_name: str
+    typography: dict[str, TypographySection]
+    updated_at: float
+
 
 # ---------------------------------------------------------------------------
 # SQLite persistence
@@ -63,6 +125,7 @@ def _resolve_db_path() -> Path:
         tmp.parent.mkdir(parents=True, exist_ok=True)
         return tmp
 
+
 DB_PATH = _resolve_db_path()
 
 
@@ -86,71 +149,104 @@ def _db():
 
 
 def _init_db() -> None:
+    """Create the user_templates table and drop any legacy columns."""
     with _db() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS user_templates (
-                id           TEXT PRIMARY KEY,
+                id            TEXT PRIMARY KEY,
                 template_name TEXT NOT NULL DEFAULT '',
-                doc_json     TEXT NOT NULL,
-                ui_json      TEXT NOT NULL,
-                updated_at   REAL NOT NULL
+                ui_json       TEXT NOT NULL,
+                updated_at    REAL NOT NULL
             )
         """)
 
+    # Drop the legacy doc_json column if it exists from an older schema.
+    # doc_json was a derived copy of ui_json; it is now computed on demand at
+    # lint time so there is no reason to store it.
+    _drop_legacy_column("doc_json")
 
-def _migrate_json_templates(con: sqlite3.Connection) -> None:
-    """One-time import: pull any user_templates/*.json files into SQLite.
 
-    Also recovers templates from UPLOAD_DIR tpl_*.json cache files (written
-    by _find_template_path when linting) in case the DB was ever cleared.
-    Files written by the old file-based storage layer are inserted using
-    INSERT OR IGNORE so already-migrated rows are never overwritten.
-    """
-    def _insert_json_file(p: Path, tid: str) -> None:
-        try:
-            doc = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
+def _drop_legacy_column(column: str) -> None:
+    """Remove a column from user_templates if it exists (SQLite-safe)."""
+    con = sqlite3.connect(str(DB_PATH))
+    con.row_factory = sqlite3.Row
+    try:
+        cols = {row["name"] for row in con.execute("PRAGMA table_info(user_templates)")}
+        if column not in cols:
             return
-        template_name = doc.get("template_name", "")
-        ui = doc.get("_ui") or {"template_name": template_name, "typography": {}}
+        con.execute("BEGIN")
+        con.execute("""
+            CREATE TABLE user_templates_new (
+                id            TEXT PRIMARY KEY,
+                template_name TEXT NOT NULL DEFAULT '',
+                ui_json       TEXT NOT NULL,
+                updated_at    REAL NOT NULL
+            )
+        """)
         con.execute(
-            """
-            INSERT OR IGNORE INTO user_templates
-                (id, template_name, doc_json, ui_json, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
+            "INSERT INTO user_templates_new "
+            "SELECT id, template_name, ui_json, updated_at FROM user_templates"
+        )
+        con.execute("DROP TABLE user_templates")
+        con.execute("ALTER TABLE user_templates_new RENAME TO user_templates")
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+# ---------------------------------------------------------------------------
+# Demo template
+# ---------------------------------------------------------------------------
+# Inserted once — only when the table is completely empty and we are not
+# running under a test DATABASE_PATH override.  After this seed runs, it
+# never runs again: any saved template (including this one) suppresses it.
+
+_DEMO_TEMPLATE_ID = "demo-default-brand"
+
+_DEMO_UI: dict = {
+    "template_name": "Demo Brand",
+    "typography": {
+        "h1":       {"font_family": "Arial",   "font_size": 16,   "font_color": None, "bold": True,  "italic": None},
+        "body":     {"font_family": "Calibri", "font_size": 11,   "font_color": None, "bold": None,  "italic": None},
+        "captions": {"font_family": "Calibri", "font_size": 9,    "font_color": None, "bold": None,  "italic": None},
+    },
+}
+
+
+def _seed_demo_template() -> None:
+    """Insert the demo template if and only if the table is empty."""
+    with _db() as con:
+        count = con.execute("SELECT count(*) FROM user_templates").fetchone()[0]
+        if count > 0:
+            return
+        con.execute(
+            "INSERT OR IGNORE INTO user_templates "
+            "(id, template_name, ui_json, updated_at) VALUES (?, ?, ?, ?)",
             (
-                tid,
-                template_name,
-                json.dumps(doc, ensure_ascii=False),
-                json.dumps(ui, ensure_ascii=False),
-                p.stat().st_mtime,
+                _DEMO_TEMPLATE_ID,
+                _DEMO_UI["template_name"],
+                json.dumps(_DEMO_UI),
+                time.time(),
             ),
         )
 
-    # 1. Old file-based storage (user_templates/*.json)
-    json_dir = Path(__file__).parent / "user_templates"
-    if json_dir.is_dir():
-        for p in sorted(json_dir.glob("*.json")):
-            tid = p.stem
-            if tid and not tid.startswith("."):
-                _insert_json_file(p, tid)
-
-    # 2. Lint-session cache (UPLOAD_DIR/tpl_*.json) — recovery fallback
-    for p in sorted(UPLOAD_DIR.glob("tpl_*.json")):
-        tid = p.stem[4:]  # strip "tpl_" prefix
-        if tid and not tid.startswith("."):
-            _insert_json_file(p, tid)
 
 _init_db()
 
-# Migrate templates saved by the old file-based storage into SQLite.
-# Skipped when DATABASE_PATH is set (test environments use isolated temp DBs).
+# Seed the demo only in non-test environments (tests use isolated DBs and
+# assert specific counts, so we leave their DB untouched).
 if not os.environ.get("DATABASE_PATH"):
-    with _db() as _con:
-        _migrate_json_templates(_con)
+    _seed_demo_template()
 
-# Default values – fields matching these are treated as "no rule set".
+# ---------------------------------------------------------------------------
+# Constants (linter rule generation)
+# ---------------------------------------------------------------------------
+
+# Default field values in the Settings form UI.  A field still at its default
+# is treated as "no rule enforced" and omitted from the generated require block.
 _TYPO_DEFAULTS = {
     "font_family": "Calibri",
     "font_size": 11,
@@ -167,8 +263,6 @@ _STYLE_NAMES = {
 }
 
 # In-memory session store.  Maps session_id → dict with docx path + rules.
-# Sessions last for the lifetime of the process (sufficient for single-user
-# desktop use; swap for Redis/filesystem for multi-user deployments).
 _sessions: dict[str, dict] = {}
 
 
@@ -178,220 +272,12 @@ _sessions: dict[str, dict] = {}
 
 
 def _load_template_list() -> list[dict[str, str]]:
-    """Return [{slug, name}, …] for user-created templates only."""
+    """Return [{slug, name}, …] for all saved templates, oldest first."""
     with _db() as con:
         rows = con.execute(
             "SELECT id, template_name FROM user_templates ORDER BY updated_at"
         ).fetchall()
     return [{"slug": row["id"], "name": row["template_name"] or "(Untitled)"} for row in rows]
-
-
-def _find_template_path(slug: str) -> Path | None:
-    """Return a Path the loader can read.  User templates are written to a temp file."""
-    with _db() as con:
-        row = con.execute(
-            "SELECT doc_json FROM user_templates WHERE id = ?", (slug,)
-        ).fetchone()
-    if not row:
-        return None
-    tmp = UPLOAD_DIR / f"tpl_{slug}.json"
-    tmp.write_text(row["doc_json"], encoding="utf-8")
-    return tmp
-
-
-def _write_user_template(tid: str, settings: dict) -> None:
-    """Persist a user template to SQLite."""
-    doc = _build_template_json(settings)
-    doc["id"] = tid
-    ui = {"template_name": settings.get("template_name", ""),
-          "typography":    settings.get("typography", {})}
-    doc["_ui"] = ui
-    with _db() as con:
-        con.execute("""
-            INSERT INTO user_templates (id, template_name, doc_json, ui_json, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                template_name = excluded.template_name,
-                doc_json      = excluded.doc_json,
-                ui_json       = excluded.ui_json,
-                updated_at    = excluded.updated_at
-        """, (
-            tid,
-            settings.get("template_name", ""),
-            json.dumps(doc, ensure_ascii=False),
-            json.dumps(ui, ensure_ascii=False),
-            time.time(),
-        ))
-
-
-def _build_violation_details(violations, rule_map: dict) -> list[dict]:
-    """Serialize violations, enriching TextProhibitionRule entries with find info."""
-    result = []
-    for v in violations:
-        detail: dict = {
-            "rule_id": v.rule_id,
-            "description": v.rule_description,
-            "detail": v.detail,
-        }
-        rule = rule_map.get(v.rule_id)
-        if isinstance(rule, TextProhibitionRule):
-            detail["find"] = rule.find
-            detail["case_sensitive"] = rule.case_sensitive
-            detail["whole_word"] = rule.whole_word
-        elif isinstance(rule, StyleRule) and rule.bucket == Bucket.ALWAYS:
-            # Include the required values so the frontend can apply them visually
-            fix: dict = {}
-            if rule.require.font_name  is not None: fix["font_name"]  = rule.require.font_name
-            if rule.require.font_size  is not None: fix["font_size"]  = rule.require.font_size
-            if rule.require.bold       is not None: fix["bold"]       = rule.require.bold
-            if rule.require.italic     is not None: fix["italic"]     = rule.require.italic
-            if rule.require.color_hex  is not None: fix["color_hex"]  = rule.require.color_hex
-            if fix:
-                detail["fix"] = fix
-        result.append(detail)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-
-@app.get("/")
-def index():
-    return render_template("index.html", templates=_load_template_list())
-
-
-@app.post("/lint")
-def lint():
-    # --- validate inputs ---------------------------------------------------
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    uploaded = request.files["file"]
-    if not uploaded.filename or not uploaded.filename.lower().endswith(".docx"):
-        return jsonify({"error": "Only .docx files are supported"}), 400
-
-    slug = request.form.get("template", "")
-    template_path = _find_template_path(slug)
-    if template_path is None:
-        return jsonify({"error": f"Unknown template: '{slug}'"}), 400
-
-    # --- save upload -------------------------------------------------------
-    session_id = str(uuid.uuid4())
-    docx_path = UPLOAD_DIR / f"{session_id}.docx"
-    uploaded.save(str(docx_path))
-
-    # --- run linter --------------------------------------------------------
-    try:
-        template_name, rules = load_template(template_path)
-        paragraphs = parse_document(docx_path)
-        report = lint_run(
-            template_name, rules, paragraphs, source_file=uploaded.filename
-        )
-    except Exception as exc:
-        docx_path.unlink(missing_ok=True)
-        return jsonify({"error": str(exc)}), 422
-
-    # --- persist session ---------------------------------------------------
-    _sessions[session_id] = {
-        "docx_path": docx_path,
-        "rules": rules,
-        "original_filename": uploaded.filename,
-    }
-
-    # --- build response payload --------------------------------------------
-    rule_map = {r.id: r for r in rules}
-
-    # Index changes and violations by paragraph index
-    changes_by_para: dict[int, list] = {}
-    for c in report.changes:
-        changes_by_para.setdefault(c.paragraph_index, []).append(c)
-
-    violations_by_para: dict[int, list] = {}
-    for v in report.violations:
-        violations_by_para.setdefault(v.paragraph_index, []).append(v)
-
-    para_payload = []
-    for para in paragraphs:
-        idx = para.index
-        para_changes = changes_by_para.get(idx, [])
-        para_violations = violations_by_para.get(idx, [])
-
-        # Enrich change records with find/replace so the frontend can
-        # re-apply/highlight substitutions client-side.
-        change_details = []
-        for c in para_changes:
-            rule = rule_map.get(c.rule_id)
-            detail: dict = {
-                "rule_id": c.rule_id,
-                "description": c.rule_description,
-            }
-            if isinstance(rule, TextSubstitutionRule):
-                detail["find"] = rule.find
-                detail["replace"] = rule.replace
-                detail["case_sensitive"] = rule.case_sensitive
-                detail["whole_word"] = rule.whole_word
-            change_details.append(detail)
-
-        para_payload.append(
-            {
-                "index": idx,
-                "style_name": para.style_name,
-                "font_size": para.font_size,
-                "bold": para.bold,
-                "italic": para.italic,
-                "color_hex": para.color_hex,
-                "original": para.text,
-                "corrected": report.corrected_paragraphs[idx],
-                "has_changes": bool(para_changes),
-                "has_violations": bool(para_violations),
-                "changes": change_details,
-                "violations": _build_violation_details(para_violations, rule_map),
-            }
-        )
-
-    return jsonify(
-        {
-            "session_id": session_id,
-            "template_name": template_name,
-            "summary": report.summary(),
-            "paragraphs": para_payload,
-        }
-    )
-
-
-@app.post("/download")
-def download():
-    payload = request.get_json(silent=True) or {}
-    session_id = payload.get("session_id", "")
-    accepted_ids: set[str] = set(payload.get("accepted_rule_ids", []))
-
-    session = _sessions.get(session_id)
-    if session is None:
-        return jsonify({"error": "Session not found or expired"}), 404
-
-    buf = build_corrected_document(
-        session["docx_path"], session["rules"], accepted_ids
-    )
-
-    stem = Path(session["original_filename"]).stem
-    download_name = f"{stem}_corrected.docx"
-
-    return send_file(
-        buf,
-        mimetype=(
-            "application/vnd.openxmlformats-officedocument"
-            ".wordprocessingml.document"
-        ),
-        as_attachment=True,
-        download_name=download_name,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Template helpers
-# ---------------------------------------------------------------------------
 
 
 def _build_template_json(settings: dict) -> dict:
@@ -455,6 +341,210 @@ def _build_template_json(settings: dict) -> dict:
     }
 
 
+def _load_template_for_lint(slug: str):
+    """Read a template from the DB and return (template_name, rules).
+
+    Derives the linter-format JSON from ui_json at call time — nothing is
+    written to disk.  Returns (None, None) if the slug is not in the DB.
+    """
+    with _db() as con:
+        row = con.execute(
+            "SELECT template_name, ui_json FROM user_templates WHERE id = ?", (slug,)
+        ).fetchone()
+    if not row:
+        return None, None
+    ui = json.loads(row["ui_json"])
+    settings = {
+        "template_name": row["template_name"],
+        "typography":    ui.get("typography", {}),
+    }
+    doc = _build_template_json(settings)
+    template_name, rules = load_template_from_dict(doc)
+    return template_name, rules
+
+
+def _write_user_template(tid: str, settings: dict) -> None:
+    """Persist a user template to SQLite.
+
+    Only ui_json is stored — the linter doc_json is derived on demand at
+    lint time by _load_template_for_lint().
+    """
+    ui = {
+        "template_name": settings.get("template_name", ""),
+        "typography":    settings.get("typography", {}),
+    }
+    with _db() as con:
+        con.execute("""
+            INSERT INTO user_templates (id, template_name, ui_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                template_name = excluded.template_name,
+                ui_json       = excluded.ui_json,
+                updated_at    = excluded.updated_at
+        """, (
+            tid,
+            settings.get("template_name", ""),
+            json.dumps(ui, ensure_ascii=False),
+            time.time(),
+        ))
+
+
+def _build_violation_details(violations, rule_map: dict) -> list[dict]:
+    """Serialize violations, enriching TextProhibitionRule entries with find info."""
+    result = []
+    for v in violations:
+        detail: dict = {
+            "rule_id": v.rule_id,
+            "description": v.rule_description,
+            "detail": v.detail,
+        }
+        rule = rule_map.get(v.rule_id)
+        if isinstance(rule, TextProhibitionRule):
+            detail["find"] = rule.find
+            detail["case_sensitive"] = rule.case_sensitive
+            detail["whole_word"] = rule.whole_word
+        elif isinstance(rule, StyleRule) and rule.bucket == Bucket.ALWAYS:
+            fix: dict = {}
+            if rule.require.font_name  is not None: fix["font_name"]  = rule.require.font_name
+            if rule.require.font_size  is not None: fix["font_size"]  = rule.require.font_size
+            if rule.require.bold       is not None: fix["bold"]       = rule.require.bold
+            if rule.require.italic     is not None: fix["italic"]     = rule.require.italic
+            if rule.require.color_hex  is not None: fix["color_hex"]  = rule.require.color_hex
+            if fix:
+                detail["fix"] = fix
+        result.append(detail)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/")
+def index():
+    return render_template("index.html", templates=_load_template_list())
+
+
+@app.post("/lint")
+def lint():
+    # --- validate inputs ---------------------------------------------------
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename or not uploaded.filename.lower().endswith(".docx"):
+        return jsonify({"error": "Only .docx files are supported"}), 400
+
+    slug = request.form.get("template", "")
+    template_name, rules = _load_template_for_lint(slug)
+    if rules is None:
+        return jsonify({"error": f"Unknown template: '{slug}'"}), 400
+
+    # --- save upload -------------------------------------------------------
+    session_id = str(uuid.uuid4())
+    docx_path = UPLOAD_DIR / f"{session_id}.docx"
+    uploaded.save(str(docx_path))
+
+    # --- run linter --------------------------------------------------------
+    try:
+        paragraphs = parse_document(docx_path)
+        report = lint_run(
+            template_name, rules, paragraphs, source_file=uploaded.filename
+        )
+    except Exception as exc:
+        docx_path.unlink(missing_ok=True)
+        return jsonify({"error": str(exc)}), 422
+
+    # --- persist session ---------------------------------------------------
+    _sessions[session_id] = {
+        "docx_path": docx_path,
+        "rules": rules,
+        "original_filename": uploaded.filename,
+    }
+
+    # --- build response payload --------------------------------------------
+    rule_map = {r.id: r for r in rules}
+
+    changes_by_para: dict[int, list] = {}
+    for c in report.changes:
+        changes_by_para.setdefault(c.paragraph_index, []).append(c)
+
+    violations_by_para: dict[int, list] = {}
+    for v in report.violations:
+        violations_by_para.setdefault(v.paragraph_index, []).append(v)
+
+    para_payload = []
+    for para in paragraphs:
+        idx = para.index
+        para_changes    = changes_by_para.get(idx, [])
+        para_violations = violations_by_para.get(idx, [])
+
+        change_details = []
+        for c in para_changes:
+            rule = rule_map.get(c.rule_id)
+            detail: dict = {
+                "rule_id": c.rule_id,
+                "description": c.rule_description,
+            }
+            if isinstance(rule, TextSubstitutionRule):
+                detail["find"] = rule.find
+                detail["replace"] = rule.replace
+                detail["case_sensitive"] = rule.case_sensitive
+                detail["whole_word"] = rule.whole_word
+            change_details.append(detail)
+
+        para_payload.append({
+            "index": idx,
+            "style_name": para.style_name,
+            "font_size": para.font_size,
+            "bold": para.bold,
+            "italic": para.italic,
+            "color_hex": para.color_hex,
+            "original": para.text,
+            "corrected": report.corrected_paragraphs[idx],
+            "has_changes": bool(para_changes),
+            "has_violations": bool(para_violations),
+            "changes": change_details,
+            "violations": _build_violation_details(para_violations, rule_map),
+        })
+
+    return jsonify({
+        "session_id":    session_id,
+        "template_name": template_name,
+        "summary":       report.summary(),
+        "paragraphs":    para_payload,
+    })
+
+
+@app.post("/download")
+def download():
+    payload = request.get_json(silent=True) or {}
+    session_id   = payload.get("session_id", "")
+    accepted_ids: set[str] = set(payload.get("accepted_rule_ids", []))
+
+    session = _sessions.get(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found or expired"}), 404
+
+    buf = build_corrected_document(
+        session["docx_path"], session["rules"], accepted_ids
+    )
+
+    stem          = Path(session["original_filename"]).stem
+    download_name = f"{stem}_corrected.docx"
+
+    return send_file(
+        buf,
+        mimetype=(
+            "application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.document"
+        ),
+        as_attachment=True,
+        download_name=download_name,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Settings / template routes
 # ---------------------------------------------------------------------------
@@ -468,7 +558,7 @@ def settings_page():
 
 @app.get("/api/settings")
 def api_settings_get():
-    """Return the most-recently saved user template name for the header badge."""
+    """Return the most-recently saved template name for the header badge."""
     with _db() as con:
         row = con.execute(
             "SELECT template_name FROM user_templates ORDER BY updated_at DESC LIMIT 1"
