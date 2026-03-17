@@ -402,7 +402,11 @@ def api_templates_create():
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid body"}), 400
     tid = str(uuid.uuid4())
-    _write_user_template(tid, payload)
+    try:
+        _write_user_template(tid, payload)
+    except Exception as exc:
+        app.logger.exception("Failed to write template")
+        return jsonify({"error": str(exc)}), 500
     return jsonify({"id": tid, "template_name": payload.get("template_name", "")}), 201
 
 

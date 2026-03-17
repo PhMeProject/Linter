@@ -339,7 +339,11 @@ async function saveTemplate() {
         currentTemplateId = created.id;   // so a second save within the same session PUTs
       }
     }
-    if (!res.ok) throw new Error("Save failed");
+    if (!res.ok) {
+      let msg = "Save failed";
+      try { const e = await res.json(); if (e.error) msg = e.error; } catch (_) {}
+      throw new Error(msg);
+    }
     await loadTemplateList();
     showListView();
     showToast();
