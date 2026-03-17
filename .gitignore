@@ -6,3 +6,5 @@ __pycache__/
 dist/
 build/
 .env
+settings/
+templates/custom_template.json

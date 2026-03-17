@@ -14,7 +14,6 @@ POST /api/settings    save user settings and regenerate custom template
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from pathlib import Path
 
@@ -33,15 +32,18 @@ from brand_linter.writer import build_corrected_document
 app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
 
 TEMPLATES_DIR = Path("templates")
-UPLOAD_DIR = Path("/tmp/brand_linter_sessions")
+UPLOAD_DIR    = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-SETTINGS_DIR = Path("settings")
-SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-SETTINGS_FILE = SETTINGS_DIR / "user_settings.json"
+# Keep all runtime-writable state in /tmp so read-only serverless
+# filesystems don't crash the function at startup.
+_TMP_DIR      = Path("/tmp/brand_linter_state")
+_TMP_DIR.mkdir(parents=True, exist_ok=True)
+SETTINGS_FILE = _TMP_DIR / "user_settings.json"
 
 # Fixed slug for the user-generated custom template.
 CUSTOM_TEMPLATE_SLUG = "custom_template"
+_CUSTOM_TEMPLATE_PATH = _TMP_DIR / f"{CUSTOM_TEMPLATE_SLUG}.json"
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
@@ -71,9 +73,16 @@ _sessions: dict[str, dict] = {}
 
 
 def _load_template_list() -> list[dict[str, str]]:
-    """Return [{slug, name}, …] for every template in TEMPLATES_DIR."""
+    """Return [{slug, name}, …] for every template in TEMPLATES_DIR plus any
+    custom template saved to /tmp."""
+    paths = sorted(TEMPLATES_DIR.glob("*.json"))
+    # Append the /tmp custom template if it exists and isn't shadowed by a
+    # same-named file in TEMPLATES_DIR.
+    static_slugs = {p.stem for p in paths}
+    if _CUSTOM_TEMPLATE_PATH.exists() and CUSTOM_TEMPLATE_SLUG not in static_slugs:
+        paths = list(paths) + [_CUSTOM_TEMPLATE_PATH]
     result = []
-    for p in sorted(TEMPLATES_DIR.glob("*.json")):
+    for p in paths:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             name = data.get("template_name", p.stem)
@@ -84,6 +93,9 @@ def _load_template_list() -> list[dict[str, str]]:
 
 
 def _find_template_path(slug: str) -> Path | None:
+    # Check /tmp first so a saved custom template takes precedence.
+    if slug == CUSTOM_TEMPLATE_SLUG and _CUSTOM_TEMPLATE_PATH.exists():
+        return _CUSTOM_TEMPLATE_PATH
     candidate = TEMPLATES_DIR / f"{slug}.json"
     return candidate if candidate.exists() else None
 
@@ -346,10 +358,12 @@ def api_settings_post():
     # Persist raw settings for round-trip editing
     SETTINGS_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # Regenerate the custom template so it's immediately available for linting
+    # Regenerate the custom template so it's immediately available for linting.
+    # Written to /tmp so it works on read-only serverless filesystems.
     template_json = _build_custom_template(payload)
-    template_path = TEMPLATES_DIR / f"{CUSTOM_TEMPLATE_SLUG}.json"
-    template_path.write_text(json.dumps(template_json, indent=2, ensure_ascii=False), encoding="utf-8")
+    _CUSTOM_TEMPLATE_PATH.write_text(
+        json.dumps(template_json, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     return jsonify({"ok": True})
 
