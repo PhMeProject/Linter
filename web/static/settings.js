@@ -103,21 +103,26 @@ function populateSection(section, data) {
 
 // ---------------------------------------------------------------------------
 // Read current form state
+// Fields left at their default are stored as null — the backend treats null
+// as "no rule set" and omits that constraint from the generated template.
 // ---------------------------------------------------------------------------
 
 function readSection(section) {
   const sizeSel    = qs(section, "fs-select");
   const sizeCustom = qs(section, "fs-custom");
-  const fontSize   = sizeSel.value === "other"
+  const rawSize    = sizeSel.value === "other"
     ? Math.min(72, Math.max(6, Number(sizeCustom.value) || DEFAULTS.font_size))
     : Number(sizeSel.value);
 
+  const fontFamily = qs(section, "ff-select").value;
+  const fontColor  = qs(section, "color-hex").value.trim().toUpperCase();
+
   return {
-    font_family: qs(section, "ff-select").value,
-    font_size:   fontSize,
-    font_color:  qs(section, "color-hex").value,
-    bold:        readToggle(section, "bold"),
-    italic:      readToggle(section, "italic"),
+    font_family: fontFamily === DEFAULTS.font_family                  ? null : fontFamily,
+    font_size:   rawSize    === DEFAULTS.font_size                    ? null : rawSize,
+    font_color:  (!fontColor || fontColor === DEFAULTS.font_color.toUpperCase()) ? null : fontColor,
+    bold:        readToggle(section, "bold")   ? true : null,
+    italic:      readToggle(section, "italic") ? true : null,
   };
 }
 
@@ -173,6 +178,22 @@ function wireToggles(section) {
 }
 
 // ---------------------------------------------------------------------------
+// Active ruleset badge
+// ---------------------------------------------------------------------------
+
+function updateBadge(name) {
+  const badge  = document.getElementById("active-ruleset-badge");
+  const nameEl = document.getElementById("active-ruleset-name");
+  if (!badge) return;
+  if (name && name.trim()) {
+    if (nameEl) nameEl.textContent = name.trim();
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toast
 // ---------------------------------------------------------------------------
 
@@ -209,6 +230,7 @@ async function saveSettings() {
     });
     if (!res.ok) throw new Error("Save failed");
     showToast();
+    updateBadge(payload.template_name);
   } catch (err) {
     alert("Could not save settings: " + err.message);
   } finally {
@@ -251,6 +273,7 @@ async function init() {
         $("template-name").value = saved.template_name;
       }
       SECTIONS.forEach(s => populateSection(s, saved?.typography?.[s]));
+      updateBadge(saved.template_name);
     }
   } catch (_) {
     // No saved settings – defaults already set in HTML

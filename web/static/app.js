@@ -657,6 +657,23 @@ $("settings-gear-btn").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Active ruleset badge – show saved custom template name in the header
+// ---------------------------------------------------------------------------
+
+(async function loadActiveRuleset() {
+  try {
+    const res = await fetch("/api/settings");
+    if (!res.ok) return;
+    const { template_name } = await res.json();
+    if (!template_name) return;
+    const badge  = $("active-ruleset-badge");
+    const nameEl = $("active-ruleset-name");
+    if (badge)  { badge.hidden = false; }
+    if (nameEl) { nameEl.textContent = template_name; }
+  } catch (_) {}
+})();
+
+// ---------------------------------------------------------------------------
 // Back button
 // ---------------------------------------------------------------------------
 

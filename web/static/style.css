@@ -61,6 +61,27 @@ body {
 }
 .header-title { font-size: .95rem; font-weight: 600; letter-spacing: -.015em; }
 
+/* Active ruleset badge – shown in the header when a custom template is saved */
+.active-ruleset-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: auto;
+  font-size: .72rem;
+  font-weight: 500;
+  color: var(--green);
+  background: var(--green-bg);
+  border: 1px solid rgba(52,199,89,.22);
+  border-radius: 99px;
+  padding: .22rem .6rem;
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+}
+.active-ruleset-badge svg { flex-shrink: 0; }
+#active-ruleset-name { overflow: hidden; text-overflow: ellipsis; }
+
 /* ── Upload section ──────────────────────────────────────────────────── */
 #upload-section {
   min-height: calc(100vh - 52px);
@@ -659,7 +680,7 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   color: #fff;
   font-size: .875rem;
   font-weight: 500;
-  padding: .6rem 1.4rem;
+  padding: .6rem 1.25rem .6rem 1rem;
   border-radius: var(--r-md);
   box-shadow: var(--sh-lg);
   opacity: 0;
@@ -667,7 +688,11 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   pointer-events: none;
   z-index: 500;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
 }
+.sp-toast-icon { flex-shrink: 0; }
 .sp-toast--visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
