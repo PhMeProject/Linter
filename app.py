@@ -20,9 +20,10 @@ module.  There is exactly ONE source of truth:
     ├── ui_json       TEXT               (JSON — what the user typed in the form)
     └── updated_at    REAL               (Unix timestamp)
 
-ui_json is the authoritative record.  The linter-format JSON (doc_json) is
-derived from ui_json at lint time and never stored — this eliminates the
-dual-copy problem that caused "Unknown template" and "Not found" errors.
+ui_json is the authoritative record.  The linter-format JSON is derived from
+ui_json at lint time and never stored.  No demo data is pre-seeded; the table
+starts empty and is populated only by explicit user actions (create/edit/delete
+via the Settings UI).
 
 Moving to a real database
 -------------------------
@@ -197,49 +198,7 @@ def _drop_legacy_column(column: str) -> None:
         con.close()
 
 
-# ---------------------------------------------------------------------------
-# Demo template
-# ---------------------------------------------------------------------------
-# Inserted once — only when the table is completely empty and we are not
-# running under a test DATABASE_PATH override.  After this seed runs, it
-# never runs again: any saved template (including this one) suppresses it.
-
-_DEMO_TEMPLATE_ID = "demo-default-brand"
-
-_DEMO_UI: dict = {
-    "template_name": "Demo Brand",
-    "typography": {
-        "h1":       {"font_family": "Arial",   "font_size": 16,   "font_color": None, "bold": True,  "italic": None},
-        "body":     {"font_family": "Calibri", "font_size": 11,   "font_color": None, "bold": None,  "italic": None},
-        "captions": {"font_family": "Calibri", "font_size": 9,    "font_color": None, "bold": None,  "italic": None},
-    },
-}
-
-
-def _seed_demo_template() -> None:
-    """Insert the demo template if and only if the table is empty."""
-    with _db() as con:
-        count = con.execute("SELECT count(*) FROM user_templates").fetchone()[0]
-        if count > 0:
-            return
-        con.execute(
-            "INSERT OR IGNORE INTO user_templates "
-            "(id, template_name, ui_json, updated_at) VALUES (?, ?, ?, ?)",
-            (
-                _DEMO_TEMPLATE_ID,
-                _DEMO_UI["template_name"],
-                json.dumps(_DEMO_UI),
-                time.time(),
-            ),
-        )
-
-
 _init_db()
-
-# Seed the demo only in non-test environments (tests use isolated DBs and
-# assert specific counts, so we leave their DB untouched).
-if not os.environ.get("DATABASE_PATH"):
-    _seed_demo_template()
 
 # ---------------------------------------------------------------------------
 # Constants (linter rule generation)
