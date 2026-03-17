@@ -6,11 +6,15 @@ Routes
 GET  /                upload form (lists available templates)
 POST /lint            upload .docx + template → JSON lint report + session id
 POST /download        session id + accepted rule ids → corrected .docx
+GET  /settings        settings UI
+GET  /api/settings    return current user settings as JSON
+POST /api/settings    save user settings and regenerate custom template
 """
 
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -31,6 +35,29 @@ app = Flask(__name__, template_folder="web/templates", static_folder="web/static
 TEMPLATES_DIR = Path("templates")
 UPLOAD_DIR = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+SETTINGS_DIR = Path("settings")
+SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+SETTINGS_FILE = SETTINGS_DIR / "user_settings.json"
+
+# Fixed slug for the user-generated custom template.
+CUSTOM_TEMPLATE_SLUG = "custom_template"
+
+# Default values – fields matching these are treated as "no rule set".
+_TYPO_DEFAULTS = {
+    "font_family": "Calibri",
+    "font_size": 11,
+    "font_color": "#000000",
+    "bold": False,
+    "italic": False,
+}
+
+# Maps settings section key → Word paragraph style name
+_STYLE_NAMES = {
+    "h1":       "Heading 1",
+    "body":     "Normal",
+    "captions": "Caption",
+}
 
 # In-memory session store.  Maps session_id → dict with docx path + rules.
 # Sessions last for the lifetime of the process (sufficient for single-user
@@ -224,6 +251,107 @@ def download():
         as_attachment=True,
         download_name=download_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Settings helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_custom_template(settings: dict) -> dict:
+    """Convert raw settings dict → template JSON understood by load_template."""
+    template_name = (settings.get("template_name") or "Custom Rules").strip() or "Custom Rules"
+    typography = settings.get("typography", {})
+
+    always_rules = []
+    for section_key, style_name in _STYLE_NAMES.items():
+        section = typography.get(section_key, {})
+        require: dict = {}
+
+        font_family = section.get("font_family") or _TYPO_DEFAULTS["font_family"]
+        if font_family != _TYPO_DEFAULTS["font_family"]:
+            require["font_name"] = font_family
+
+        raw_size = section.get("font_size")
+        try:
+            font_size = float(raw_size) if raw_size is not None else _TYPO_DEFAULTS["font_size"]
+        except (TypeError, ValueError):
+            font_size = _TYPO_DEFAULTS["font_size"]
+        if font_size != _TYPO_DEFAULTS["font_size"]:
+            require["font_size"] = font_size
+
+        color = (section.get("font_color") or "").lstrip("#").upper()
+        if color and color != "000000":
+            require["color_hex"] = color
+
+        if section.get("bold") is True:
+            require["bold"] = True
+
+        if section.get("italic") is True:
+            require["italic"] = True
+
+        if require:
+            rule_id = f"custom-{section_key}-001"
+            always_rules.append({
+                "type": "style",
+                "id": rule_id,
+                "description": f"{style_name} typography rules",
+                "match": {"style_name": style_name},
+                "require": require,
+            })
+
+    return {
+        "template_name": template_name,
+        "version": "1.0",
+        "description": "Custom template created via Settings UI",
+        "rules": {
+            "branding": {
+                "typography": {"always": always_rules, "never": []},
+                "colors":     {"always": [], "never": []},
+                "logos":      {"always": [], "never": []},
+            },
+            "formatting": {"always": [], "never": []},
+            "language":   {"always": [], "never": []},
+            "structure":  {"always": [], "never": []},
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Settings routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/settings")
+def settings_page():
+    return render_template("settings.html")
+
+
+@app.get("/api/settings")
+def api_settings_get():
+    if SETTINGS_FILE.exists():
+        try:
+            return jsonify(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return jsonify({})
+
+
+@app.post("/api/settings")
+def api_settings_post():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid JSON body"}), 400
+
+    # Persist raw settings for round-trip editing
+    SETTINGS_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Regenerate the custom template so it's immediately available for linting
+    template_json = _build_custom_template(payload)
+    template_path = TEMPLATES_DIR / f"{CUSTOM_TEMPLATE_SLUG}.json"
+    template_path.write_text(json.dumps(template_json, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------------------
