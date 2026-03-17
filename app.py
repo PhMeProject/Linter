@@ -38,14 +38,20 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Store user templates in the project directory so they survive server
 # restarts.  Only fall back to /tmp if the project root is read-only
 # (e.g. a locked-down serverless environment — data won't persist there).
-_local_ut = Path("user_templates")
-try:
-    _local_ut.mkdir(parents=True, exist_ok=True)
-    USER_TEMPLATES_DIR = _local_ut
-except OSError:
-    _tmp_ut = Path("/tmp/brand_linter_state/user_templates")
-    _tmp_ut.mkdir(parents=True, exist_ok=True)
-    USER_TEMPLATES_DIR = _tmp_ut
+def _init_templates_dir() -> Path:
+    local = Path("user_templates")
+    try:
+        local.mkdir(parents=True, exist_ok=True)
+        probe = local / ".write_test"
+        probe.write_text("ok")
+        probe.unlink()
+        return local
+    except OSError:
+        tmp = Path("/tmp/brand_linter_state/user_templates")
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+USER_TEMPLATES_DIR = _init_templates_dir()
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
