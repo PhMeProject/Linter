@@ -8,3 +8,4 @@ build/
 .env
 settings/
 templates/custom_template.json
+user_templates/
