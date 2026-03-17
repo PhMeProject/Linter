@@ -37,13 +37,10 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Keep all runtime-writable state in /tmp so read-only serverless
 # filesystems don't crash the function at startup.
-_TMP_DIR      = Path("/tmp/brand_linter_state")
+_TMP_DIR           = Path("/tmp/brand_linter_state")
+USER_TEMPLATES_DIR = _TMP_DIR / "user_templates"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
-SETTINGS_FILE = _TMP_DIR / "user_settings.json"
-
-# Fixed slug for the user-generated custom template.
-CUSTOM_TEMPLATE_SLUG = "custom_template"
-_CUSTOM_TEMPLATE_PATH = _TMP_DIR / f"{CUSTOM_TEMPLATE_SLUG}.json"
+USER_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
@@ -72,17 +69,21 @@ _sessions: dict[str, dict] = {}
 # ---------------------------------------------------------------------------
 
 
+def _user_template_path(tid: str) -> Path:
+    return USER_TEMPLATES_DIR / f"{tid}.json"
+
+
 def _load_template_list() -> list[dict[str, str]]:
-    """Return [{slug, name}, …] for every template in TEMPLATES_DIR plus any
-    custom template saved to /tmp."""
-    paths = sorted(TEMPLATES_DIR.glob("*.json"))
-    # Append the /tmp custom template if it exists and isn't shadowed by a
-    # same-named file in TEMPLATES_DIR.
-    static_slugs = {p.stem for p in paths}
-    if _CUSTOM_TEMPLATE_PATH.exists() and CUSTOM_TEMPLATE_SLUG not in static_slugs:
-        paths = list(paths) + [_CUSTOM_TEMPLATE_PATH]
+    """Return [{slug, name}, …] for bundled templates then user templates."""
     result = []
-    for p in paths:
+    for p in sorted(TEMPLATES_DIR.glob("*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            name = data.get("template_name", p.stem)
+        except Exception:
+            name = p.stem
+        result.append({"slug": p.stem, "name": name})
+    for p in sorted(USER_TEMPLATES_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             name = data.get("template_name", p.stem)
@@ -93,9 +94,10 @@ def _load_template_list() -> list[dict[str, str]]:
 
 
 def _find_template_path(slug: str) -> Path | None:
-    # Check /tmp first so a saved custom template takes precedence.
-    if slug == CUSTOM_TEMPLATE_SLUG and _CUSTOM_TEMPLATE_PATH.exists():
-        return _CUSTOM_TEMPLATE_PATH
+    # User templates (by UUID stem) take priority over bundled ones.
+    user_path = _user_template_path(slug)
+    if user_path.exists():
+        return user_path
     candidate = TEMPLATES_DIR / f"{slug}.json"
     return candidate if candidate.exists() else None
 
@@ -266,12 +268,16 @@ def download():
 
 
 # ---------------------------------------------------------------------------
-# Settings helpers
+# Template helpers
 # ---------------------------------------------------------------------------
 
 
-def _build_custom_template(settings: dict) -> dict:
-    """Convert raw settings dict → template JSON understood by load_template."""
+def _build_template_json(settings: dict) -> dict:
+    """Convert UI settings dict → linter-compatible template JSON.
+
+    Fields left null by the frontend are treated as "no rule set" and
+    omitted from the generated require block so the linter never flags them.
+    """
     template_name = (settings.get("template_name") or "Custom Rules").strip() or "Custom Rules"
     typography = settings.get("typography", {})
 
@@ -298,15 +304,13 @@ def _build_custom_template(settings: dict) -> dict:
 
         if section.get("bold") is True:
             require["bold"] = True
-
         if section.get("italic") is True:
             require["italic"] = True
 
         if require:
-            rule_id = f"custom-{section_key}-001"
             always_rules.append({
                 "type": "style",
-                "id": rule_id,
+                "id": f"custom-{section_key}-001",
                 "description": f"{style_name} typography rules",
                 "match": {"style_name": style_name},
                 "require": require,
@@ -329,8 +333,22 @@ def _build_custom_template(settings: dict) -> dict:
     }
 
 
+def _write_user_template(tid: str, settings: dict) -> None:
+    """Persist a user template: linter rules + embedded UI state in one file."""
+    doc = _build_template_json(settings)
+    doc["id"] = tid
+    # Embed the raw UI state so Edit can round-trip the form values.
+    doc["_ui"] = {
+        "template_name": settings.get("template_name", ""),
+        "typography":    settings.get("typography", {}),
+    }
+    _user_template_path(tid).write_text(
+        json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
 # ---------------------------------------------------------------------------
-# Settings routes
+# Settings / template routes
 # ---------------------------------------------------------------------------
 
 
@@ -341,30 +359,77 @@ def settings_page():
 
 @app.get("/api/settings")
 def api_settings_get():
-    if SETTINGS_FILE.exists():
+    """Return the most-recently saved user template name for the header badge."""
+    candidates = sorted(
+        USER_TEMPLATES_DIR.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for p in candidates:
         try:
-            return jsonify(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+            data = json.loads(p.read_text(encoding="utf-8"))
+            name = data.get("template_name", "")
+            if name:
+                return jsonify({"template_name": name})
         except Exception:
             pass
     return jsonify({})
 
 
-@app.post("/api/settings")
-def api_settings_post():
+# ── User template CRUD ────────────────────────────────────────────────
+
+
+@app.get("/api/templates")
+def api_templates_list():
+    result = []
+    for p in sorted(USER_TEMPLATES_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            result.append({"id": p.stem, "template_name": data.get("template_name", p.stem)})
+        except Exception:
+            pass
+    return jsonify(result)
+
+
+@app.post("/api/templates")
+def api_templates_create():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
-        return jsonify({"error": "Invalid JSON body"}), 400
+        return jsonify({"error": "Invalid body"}), 400
+    tid = str(uuid.uuid4())
+    _write_user_template(tid, payload)
+    return jsonify({"id": tid, "template_name": payload.get("template_name", "")}), 201
 
-    # Persist raw settings for round-trip editing
-    SETTINGS_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # Regenerate the custom template so it's immediately available for linting.
-    # Written to /tmp so it works on read-only serverless filesystems.
-    template_json = _build_custom_template(payload)
-    _CUSTOM_TEMPLATE_PATH.write_text(
-        json.dumps(template_json, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+@app.get("/api/templates/<tid>")
+def api_templates_get(tid: str):
+    path = _user_template_path(tid)
+    if not path.exists():
+        return jsonify({"error": "Not found"}), 404
+    data = json.loads(path.read_text(encoding="utf-8"))
+    ui   = data.get("_ui", {})
+    return jsonify({
+        "id":            tid,
+        "template_name": data.get("template_name", ""),
+        "typography":    ui.get("typography", {}),
+    })
 
+
+@app.put("/api/templates/<tid>")
+def api_templates_update(tid: str):
+    path = _user_template_path(tid)
+    if not path.exists():
+        return jsonify({"error": "Not found"}), 404
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid body"}), 400
+    _write_user_template(tid, payload)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/templates/<tid>")
+def api_templates_delete(tid: str):
+    _user_template_path(tid).unlink(missing_ok=True)
     return jsonify({"ok": True})
 
 

@@ -61,6 +61,27 @@ body {
 }
 .header-title { font-size: .95rem; font-weight: 600; letter-spacing: -.015em; }
 
+/* Active ruleset badge – shown in the header when a custom template is saved */
+.active-ruleset-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: auto;
+  font-size: .72rem;
+  font-weight: 500;
+  color: var(--green);
+  background: var(--green-bg);
+  border: 1px solid rgba(52,199,89,.22);
+  border-radius: 99px;
+  padding: .22rem .6rem;
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+}
+.active-ruleset-badge svg { flex-shrink: 0; }
+#active-ruleset-name { overflow: hidden; text-overflow: ellipsis; }
+
 /* ── Upload section ──────────────────────────────────────────────────── */
 #upload-section {
   min-height: calc(100vh - 52px);
@@ -432,6 +453,8 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   gap: 1rem;
   margin-bottom: 1.75rem;
 }
+.sp-header-row--space { justify-content: space-between; }
+.sp-header-left { display: flex; align-items: center; gap: 1rem; }
 .sp-title {
   font-size: 1.45rem;
   font-weight: 700;
@@ -659,7 +682,7 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   color: #fff;
   font-size: .875rem;
   font-weight: 500;
-  padding: .6rem 1.4rem;
+  padding: .6rem 1.25rem .6rem 1rem;
   border-radius: var(--r-md);
   box-shadow: var(--sh-lg);
   opacity: 0;
@@ -667,11 +690,117 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   pointer-events: none;
   z-index: 500;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
 }
+.sp-toast-icon { flex-shrink: 0; }
 .sp-toast--visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Template list rows ─────────────────────────────────────────────── */
+.sp-template-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1.25rem;
+  border-top: 1px solid var(--border);
+  transition: background .1s;
+}
+.sp-template-row:first-child { border-top: none; }
+.sp-template-row:hover { background: var(--bg); }
+.sp-template-name {
+  flex: 1;
+  font-size: .9rem;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-template-actions { display: flex; gap: .3rem; flex-shrink: 0; }
+
+/* Icon buttons (edit / delete) */
+.sp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-med);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+  color: var(--text-3);
+  transition: color .12s, border-color .12s, background .12s;
+}
+.sp-icon-btn:hover           { color: var(--text);  border-color: var(--text-3); background: var(--bg); }
+.sp-icon-btn--danger:hover   { color: var(--red);   border-color: var(--red);   background: var(--red-bg); }
+
+/* Empty-state placeholder */
+.sp-list-empty {
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+  font-size: .875rem;
+  color: var(--text-3);
+}
+
+/* ── Delete confirmation overlay ─────────────────────────────────────── */
+.sp-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.sp-overlay-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-lg);
+  padding: 1.75rem;
+  max-width: 360px;
+  width: 100%;
+}
+.sp-overlay-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: .4rem;
+  word-break: break-word;
+}
+.sp-overlay-body {
+  font-size: .875rem;
+  color: var(--text-2);
+  margin-bottom: 1.5rem;
+}
+.sp-overlay-actions {
+  display: flex;
+  gap: .6rem;
+  justify-content: flex-end;
+}
+.sp-btn-delete {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  font-size: .875rem;
+  font-weight: 500;
+  padding: .5rem 1.1rem;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.sp-btn-delete:hover { opacity: .85; }
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
