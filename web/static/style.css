@@ -398,6 +398,23 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Settings gear ───────────────────────────────────────────────────── */
+.settings-gear {
+  position: fixed; top: 12px; right: 16px; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  background: transparent;
+  border: none; border-radius: 50%;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.settings-gear:hover {
+  color: var(--text);
+  background: rgba(0,0,0,.06);
+}
+.settings-gear:active { background: rgba(0,0,0,.10); }
+
 /* ── Responsive ──────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .sidebar { width: 240px; }
