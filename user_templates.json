@@ -1,0 +1,30 @@
+[
+  {
+    "id": "14dd8be0-2b54-4869-b67c-7828d29965b6",
+    "template_name": "Corp Brand",
+    "typography": {
+      "h1": {
+        "font_family": "Arial",
+        "font_size": 14,
+        "font_color": null,
+        "bold": true,
+        "italic": null
+      },
+      "body": {
+        "font_family": null,
+        "font_size": null,
+        "font_color": null,
+        "bold": null,
+        "italic": null
+      },
+      "captions": {
+        "font_family": null,
+        "font_size": null,
+        "font_color": null,
+        "bold": null,
+        "italic": null
+      }
+    },
+    "updated_at": 1773775634.4564328
+  }
+]

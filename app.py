@@ -11,19 +11,35 @@ GET  /api/settings    return current user settings as JSON
 
 Persistence
 -----------
-Templates are stored in a single SQLite file (brand_linter.db) next to this
-module.  There is exactly ONE source of truth:
+Two layers, one source of truth:
 
-    user_templates table
+1. user_templates.json  (project root, committed to git)
+   The durable store.  Written after every create/update/delete.  Read at
+   startup to restore data into a fresh SQLite database.  Because it is a
+   plain text file tracked by git it survives environment resets, container
+   rebuilds, and fresh checkouts.
+
+2. brand_linter.db  (SQLite, gitignored)
+   The runtime cache.  Faster for repeated reads during a session.
+   Populated from user_templates.json on startup if the table is empty.
+
+On startup: _init_db() creates the table, then _restore_from_json_store()
+imports any templates that were saved in a previous session.
+
+On every mutation (create/update/delete): the SQLite row is written first,
+then _sync_to_json_store() rewrites user_templates.json atomically so the
+durable copy is always up to date.
+
+The table schema:
+    user_templates
     ├── id            TEXT PRIMARY KEY   (UUID v4)
     ├── template_name TEXT               (display name)
     ├── ui_json       TEXT               (JSON — what the user typed in the form)
     └── updated_at    REAL               (Unix timestamp)
 
 ui_json is the authoritative record.  The linter-format JSON is derived from
-ui_json at lint time and never stored.  No demo data is pre-seeded; the table
-starts empty and is populated only by explicit user actions (create/edit/delete
-via the Settings UI).
+ui_json at lint time and never stored.  No data is pre-seeded; the table
+starts empty and is populated only by explicit user actions.
 
 Moving to a real database
 -------------------------
@@ -198,7 +214,85 @@ def _drop_legacy_column(column: str) -> None:
         con.close()
 
 
+# ---------------------------------------------------------------------------
+# JSON store — durable, git-tracked backup of user templates
+# ---------------------------------------------------------------------------
+# brand_linter.db is gitignored (binary, ephemeral).  user_templates.json is
+# a plain text file committed to the repo so templates survive environment
+# resets.  Every mutation writes here immediately after the SQLite commit.
+
+STORE_PATH = (Path(__file__).parent / "user_templates.json").resolve()
+
+# Guard: never write the production JSON store from an isolated test DB.
+_IN_TEST = bool(os.environ.get("DATABASE_PATH"))
+
+
+def _sync_to_json_store() -> None:
+    """Rewrite user_templates.json with the current contents of the DB.
+
+    Called after every create/update/delete so the file always reflects
+    live state.  Skipped in test environments (DATABASE_PATH is set).
+    """
+    if _IN_TEST:
+        return
+    with _db() as con:
+        rows = con.execute(
+            "SELECT id, template_name, ui_json, updated_at "
+            "FROM user_templates ORDER BY updated_at"
+        ).fetchall()
+    records = []
+    for row in rows:
+        ui = json.loads(row["ui_json"])
+        records.append({
+            "id":            row["id"],
+            "template_name": row["template_name"],
+            "typography":    ui.get("typography", {}),
+            "updated_at":    row["updated_at"],
+        })
+    tmp = STORE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(STORE_PATH)  # atomic on POSIX
+
+
+def _restore_from_json_store() -> None:
+    """On startup, if the SQLite table is empty, import from user_templates.json.
+
+    Skipped in test environments (DATABASE_PATH is set).
+    """
+    if _IN_TEST:
+        return
+    if not STORE_PATH.exists():
+        return
+    try:
+        records = json.loads(STORE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if not isinstance(records, list):
+        return
+    with _db() as con:
+        if con.execute("SELECT count(*) FROM user_templates").fetchone()[0] > 0:
+            return  # DB already populated — don't overwrite live data
+        for t in records:
+            if not isinstance(t, dict) or not t.get("id"):
+                continue
+            ui = {
+                "template_name": t.get("template_name", ""),
+                "typography":    t.get("typography", {}),
+            }
+            con.execute(
+                "INSERT OR IGNORE INTO user_templates "
+                "(id, template_name, ui_json, updated_at) VALUES (?, ?, ?, ?)",
+                (
+                    t["id"],
+                    t.get("template_name", ""),
+                    json.dumps(ui, ensure_ascii=False),
+                    t.get("updated_at", time.time()),
+                ),
+            )
+
+
 _init_db()
+_restore_from_json_store()
 
 # ---------------------------------------------------------------------------
 # Constants (linter rule generation)
@@ -346,6 +440,7 @@ def _write_user_template(tid: str, settings: dict) -> None:
             json.dumps(ui, ensure_ascii=False),
             time.time(),
         ))
+    _sync_to_json_store()
 
 
 def _build_violation_details(violations, rule_map: dict) -> list[dict]:
@@ -588,6 +683,7 @@ def api_templates_update(tid: str):
 def api_templates_delete(tid: str):
     with _db() as con:
         con.execute("DELETE FROM user_templates WHERE id = ?", (tid,))
+    _sync_to_json_store()
     return jsonify({"ok": True})
 
 
