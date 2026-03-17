@@ -11,44 +11,37 @@ GET  /api/settings    return current user settings as JSON
 
 Persistence
 -----------
-Templates are stored in a single SQLite file (brand_linter.db) next to this
-module.  There is exactly ONE source of truth:
+Templates are stored in Supabase (PostgreSQL).  There is exactly ONE source
+of truth:
 
     user_templates table
-    ├── id            TEXT PRIMARY KEY   (UUID v4)
+    ├── id            TEXT PRIMARY KEY   (UUID v4, generated in Python)
     ├── template_name TEXT               (display name)
-    ├── ui_json       TEXT               (JSON — what the user typed in the form)
-    └── updated_at    REAL               (Unix timestamp)
+    ├── ui_json       JSONB              (what the user typed in the form)
+    └── updated_at    TIMESTAMPTZ        (set to NOW() on every write)
 
 ui_json is the authoritative record.  The linter-format JSON is derived from
 ui_json at lint time and never stored.  No demo data is pre-seeded; the table
 starts empty and is populated only by explicit user actions (create/edit/delete
 via the Settings UI).
 
-Moving to a real database
--------------------------
-Replace _get_db() with a connection to PostgreSQL or MySQL.  All queries use
-standard ANSI SQL.  The one non-portable construct is the upsert:
-
-    INSERT ... ON CONFLICT(id) DO UPDATE SET ...   ← SQLite / PostgreSQL
-    INSERT ... ON DUPLICATE KEY UPDATE ...          ← MySQL equivalent
-
-Everything else — the contextmanager, all routes, all helper functions —
-stays identical.
+Required environment variables
+-------------------------------
+    SUPABASE_URL  – project URL, e.g. https://<ref>.supabase.co
+    SUPABASE_KEY  – service-role secret key (or anon key with appropriate RLS)
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sqlite3
-import time
 import uuid
-from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
 from flask import Flask, jsonify, render_template, request, send_file
+from supabase import create_client, Client
 
 from brand_linter.executor import run as lint_run
 from brand_linter.loader import load_template_from_dict
@@ -64,6 +57,16 @@ app = Flask(__name__, template_folder="web/templates", static_folder="web/static
 
 UPLOAD_DIR = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Supabase client
+# ---------------------------------------------------------------------------
+
+_SUPABASE_URL = os.environ["SUPABASE_URL"]
+_SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+
+_supabase: Client = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+_TABLE = "user_templates"
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -103,104 +106,6 @@ class TemplateRecord(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# SQLite persistence
-# ---------------------------------------------------------------------------
-# Priority: DATABASE_PATH env var → project root → /tmp fallback.
-# The /tmp fallback is ephemeral (data lost on restart); set DATABASE_PATH
-# to a writable persistent path (e.g. a mounted volume) in production.
-
-def _resolve_db_path() -> Path:
-    env = os.environ.get("DATABASE_PATH", "").strip()
-    if env:
-        p = Path(env).resolve()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
-    # Always resolve to an absolute path so SQLite opens the same file
-    # regardless of the process working directory at connection time.
-    local = (Path(__file__).parent / "brand_linter.db").resolve()
-    try:
-        local.touch()
-        return local
-    except OSError:
-        tmp = Path("/tmp/brand_linter_state/brand_linter.db").resolve()
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        return tmp
-
-
-DB_PATH = _resolve_db_path()
-
-
-def _get_db() -> sqlite3.Connection:
-    con = sqlite3.connect(str(DB_PATH))
-    con.row_factory = sqlite3.Row
-    return con
-
-
-@contextmanager
-def _db():
-    con = _get_db()
-    try:
-        yield con
-        con.commit()
-    except Exception:
-        con.rollback()
-        raise
-    finally:
-        con.close()
-
-
-def _init_db() -> None:
-    """Create the user_templates table and drop any legacy columns."""
-    with _db() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS user_templates (
-                id            TEXT PRIMARY KEY,
-                template_name TEXT NOT NULL DEFAULT '',
-                ui_json       TEXT NOT NULL,
-                updated_at    REAL NOT NULL
-            )
-        """)
-
-    # Drop the legacy doc_json column if it exists from an older schema.
-    # doc_json was a derived copy of ui_json; it is now computed on demand at
-    # lint time so there is no reason to store it.
-    _drop_legacy_column("doc_json")
-
-
-def _drop_legacy_column(column: str) -> None:
-    """Remove a column from user_templates if it exists (SQLite-safe)."""
-    con = sqlite3.connect(str(DB_PATH))
-    con.row_factory = sqlite3.Row
-    try:
-        cols = {row["name"] for row in con.execute("PRAGMA table_info(user_templates)")}
-        if column not in cols:
-            return
-        con.execute("BEGIN")
-        con.execute("""
-            CREATE TABLE user_templates_new (
-                id            TEXT PRIMARY KEY,
-                template_name TEXT NOT NULL DEFAULT '',
-                ui_json       TEXT NOT NULL,
-                updated_at    REAL NOT NULL
-            )
-        """)
-        con.execute(
-            "INSERT INTO user_templates_new "
-            "SELECT id, template_name, ui_json, updated_at FROM user_templates"
-        )
-        con.execute("DROP TABLE user_templates")
-        con.execute("ALTER TABLE user_templates_new RENAME TO user_templates")
-        con.commit()
-    except Exception:
-        con.rollback()
-        raise
-    finally:
-        con.close()
-
-
-_init_db()
-
-# ---------------------------------------------------------------------------
 # Constants (linter rule generation)
 # ---------------------------------------------------------------------------
 
@@ -232,11 +137,14 @@ _sessions: dict[str, dict] = {}
 
 def _load_template_list() -> list[dict[str, str]]:
     """Return [{slug, name}, …] for all saved templates, oldest first."""
-    with _db() as con:
-        rows = con.execute(
-            "SELECT id, template_name FROM user_templates ORDER BY updated_at"
-        ).fetchall()
-    return [{"slug": row["id"], "name": row["template_name"] or "(Untitled)"} for row in rows]
+    rows = (
+        _supabase.table(_TABLE)
+        .select("id, template_name")
+        .order("updated_at")
+        .execute()
+        .data
+    )
+    return [{"slug": r["id"], "name": r["template_name"] or "(Untitled)"} for r in rows]
 
 
 def _build_template_json(settings: dict) -> dict:
@@ -301,18 +209,23 @@ def _build_template_json(settings: dict) -> dict:
 
 
 def _load_template_for_lint(slug: str):
-    """Read a template from the DB and return (template_name, rules).
+    """Read a template from Supabase and return (template_name, rules).
 
     Derives the linter-format JSON from ui_json at call time — nothing is
-    written to disk.  Returns (None, None) if the slug is not in the DB.
+    written to disk.  Returns (None, None) if the slug is not found.
     """
-    with _db() as con:
-        row = con.execute(
-            "SELECT template_name, ui_json FROM user_templates WHERE id = ?", (slug,)
-        ).fetchone()
-    if not row:
+    result = (
+        _supabase.table(_TABLE)
+        .select("template_name, ui_json")
+        .eq("id", slug)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
         return None, None
-    ui = json.loads(row["ui_json"])
+    row = result.data
+    # ui_json is JSONB in Supabase — already parsed to a dict by the client
+    ui = row["ui_json"] if isinstance(row["ui_json"], dict) else json.loads(row["ui_json"])
     settings = {
         "template_name": row["template_name"],
         "typography":    ui.get("typography", {}),
@@ -323,29 +236,22 @@ def _load_template_for_lint(slug: str):
 
 
 def _write_user_template(tid: str, settings: dict) -> None:
-    """Persist a user template to SQLite.
+    """Persist a user template to Supabase (upsert).
 
-    Only ui_json is stored — the linter doc_json is derived on demand at
+    Only ui_json is stored — the linter-format JSON is derived on demand at
     lint time by _load_template_for_lint().
     """
     ui = {
         "template_name": settings.get("template_name", ""),
         "typography":    settings.get("typography", {}),
     }
-    with _db() as con:
-        con.execute("""
-            INSERT INTO user_templates (id, template_name, ui_json, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                template_name = excluded.template_name,
-                ui_json       = excluded.ui_json,
-                updated_at    = excluded.updated_at
-        """, (
-            tid,
-            settings.get("template_name", ""),
-            json.dumps(ui, ensure_ascii=False),
-            time.time(),
-        ))
+    now = datetime.now(timezone.utc).isoformat()
+    _supabase.table(_TABLE).upsert({
+        "id":            tid,
+        "template_name": settings.get("template_name", ""),
+        "ui_json":       ui,
+        "updated_at":    now,
+    }).execute()
 
 
 def _build_violation_details(violations, rule_map: dict) -> list[dict]:
@@ -518,12 +424,15 @@ def settings_page():
 @app.get("/api/settings")
 def api_settings_get():
     """Return the most-recently saved template name for the header badge."""
-    with _db() as con:
-        row = con.execute(
-            "SELECT template_name FROM user_templates ORDER BY updated_at DESC LIMIT 1"
-        ).fetchone()
-    if row and row["template_name"]:
-        return jsonify({"template_name": row["template_name"]})
+    result = (
+        _supabase.table(_TABLE)
+        .select("template_name")
+        .order("updated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if result.data and result.data[0].get("template_name"):
+        return jsonify({"template_name": result.data[0]["template_name"]})
     return jsonify({})
 
 
@@ -532,10 +441,13 @@ def api_settings_get():
 
 @app.get("/api/templates")
 def api_templates_list():
-    with _db() as con:
-        rows = con.execute(
-            "SELECT id, template_name FROM user_templates ORDER BY updated_at"
-        ).fetchall()
+    rows = (
+        _supabase.table(_TABLE)
+        .select("id, template_name")
+        .order("updated_at")
+        .execute()
+        .data
+    )
     return jsonify([{"id": r["id"], "template_name": r["template_name"]} for r in rows])
 
 
@@ -555,13 +467,17 @@ def api_templates_create():
 
 @app.get("/api/templates/<tid>")
 def api_templates_get(tid: str):
-    with _db() as con:
-        row = con.execute(
-            "SELECT template_name, ui_json FROM user_templates WHERE id = ?", (tid,)
-        ).fetchone()
-    if not row:
+    result = (
+        _supabase.table(_TABLE)
+        .select("template_name, ui_json")
+        .eq("id", tid)
+        .maybe_single()
+        .execute()
+    )
+    if not result.data:
         return jsonify({"error": "Not found"}), 404
-    ui = json.loads(row["ui_json"])
+    row = result.data
+    ui = row["ui_json"] if isinstance(row["ui_json"], dict) else json.loads(row["ui_json"])
     return jsonify({
         "id":            tid,
         "template_name": row["template_name"],
@@ -571,11 +487,14 @@ def api_templates_get(tid: str):
 
 @app.put("/api/templates/<tid>")
 def api_templates_update(tid: str):
-    with _db() as con:
-        exists = con.execute(
-            "SELECT 1 FROM user_templates WHERE id = ?", (tid,)
-        ).fetchone()
-    if not exists:
+    exists = (
+        _supabase.table(_TABLE)
+        .select("id")
+        .eq("id", tid)
+        .maybe_single()
+        .execute()
+    )
+    if not exists.data:
         return jsonify({"error": "Not found"}), 404
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -586,8 +505,7 @@ def api_templates_update(tid: str):
 
 @app.delete("/api/templates/<tid>")
 def api_templates_delete(tid: str):
-    with _db() as con:
-        con.execute("DELETE FROM user_templates WHERE id = ?", (tid,))
+    _supabase.table(_TABLE).delete().eq("id", tid).execute()
     return jsonify({"ok": True})
 
 
