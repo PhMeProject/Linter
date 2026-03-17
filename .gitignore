@@ -9,3 +9,4 @@ build/
 settings/
 templates/custom_template.json
 user_templates/*.json
+brand_linter.db

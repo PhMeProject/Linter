@@ -14,7 +14,11 @@ POST /api/settings    save user settings and regenerate custom template
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
+import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -35,17 +39,60 @@ TEMPLATES_DIR = Path("templates")
 UPLOAD_DIR    = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Store user templates in the project directory so they survive server
-# restarts.  Only fall back to /tmp if the project root is read-only
-# (e.g. a locked-down serverless environment — data won't persist there).
-_local_ut = Path("user_templates")
-try:
-    _local_ut.mkdir(parents=True, exist_ok=True)
-    USER_TEMPLATES_DIR = _local_ut
-except OSError:
-    _tmp_ut = Path("/tmp/brand_linter_state/user_templates")
-    _tmp_ut.mkdir(parents=True, exist_ok=True)
-    USER_TEMPLATES_DIR = _tmp_ut
+# ---------------------------------------------------------------------------
+# SQLite persistence
+# ---------------------------------------------------------------------------
+# Priority: DATABASE_PATH env var → project root → /tmp fallback.
+# The /tmp fallback is ephemeral (data lost on restart); set DATABASE_PATH
+# to a writable persistent path (e.g. a mounted volume) in production.
+
+def _resolve_db_path() -> Path:
+    env = os.environ.get("DATABASE_PATH", "").strip()
+    if env:
+        p = Path(env)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    local = Path("brand_linter.db")
+    try:
+        local.touch()
+        return local
+    except OSError:
+        tmp = Path("/tmp/brand_linter_state/brand_linter.db")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        return tmp
+
+DB_PATH = _resolve_db_path()
+
+
+def _get_db() -> sqlite3.Connection:
+    con = sqlite3.connect(str(DB_PATH))
+    con.row_factory = sqlite3.Row
+    return con
+
+
+@contextmanager
+def _db():
+    con = _get_db()
+    try:
+        yield con
+        con.commit()
+    finally:
+        con.close()
+
+
+def _init_db() -> None:
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS user_templates (
+                id           TEXT PRIMARY KEY,
+                template_name TEXT NOT NULL DEFAULT '',
+                doc_json     TEXT NOT NULL,
+                ui_json      TEXT NOT NULL,
+                updated_at   REAL NOT NULL
+            )
+        """)
+
+_init_db()
 
 # Default values – fields matching these are treated as "no rule set".
 _TYPO_DEFAULTS = {
@@ -74,10 +121,6 @@ _sessions: dict[str, dict] = {}
 # ---------------------------------------------------------------------------
 
 
-def _user_template_path(tid: str) -> Path:
-    return USER_TEMPLATES_DIR / f"{tid}.json"
-
-
 def _load_template_list() -> list[dict[str, str]]:
     """Return [{slug, name}, …] for bundled templates then user templates."""
     result = []
@@ -88,23 +131,52 @@ def _load_template_list() -> list[dict[str, str]]:
         except Exception:
             name = p.stem
         result.append({"slug": p.stem, "name": name})
-    for p in sorted(USER_TEMPLATES_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            name = data.get("template_name", p.stem)
-        except Exception:
-            name = p.stem
-        result.append({"slug": p.stem, "name": name})
+    with _db() as con:
+        rows = con.execute(
+            "SELECT id, template_name FROM user_templates ORDER BY updated_at"
+        ).fetchall()
+    for row in rows:
+        result.append({"slug": row["id"], "name": row["template_name"] or row["id"]})
     return result
 
 
 def _find_template_path(slug: str) -> Path | None:
-    # User templates (by UUID stem) take priority over bundled ones.
-    user_path = _user_template_path(slug)
-    if user_path.exists():
-        return user_path
+    """Return a Path for the loader.  User templates are written to a temp file."""
+    with _db() as con:
+        row = con.execute(
+            "SELECT doc_json FROM user_templates WHERE id = ?", (slug,)
+        ).fetchone()
+    if row:
+        tmp = UPLOAD_DIR / f"tpl_{slug}.json"
+        tmp.write_text(row["doc_json"], encoding="utf-8")
+        return tmp
     candidate = TEMPLATES_DIR / f"{slug}.json"
     return candidate if candidate.exists() else None
+
+
+def _write_user_template(tid: str, settings: dict) -> None:
+    """Persist a user template to SQLite."""
+    doc = _build_template_json(settings)
+    doc["id"] = tid
+    ui = {"template_name": settings.get("template_name", ""),
+          "typography":    settings.get("typography", {})}
+    doc["_ui"] = ui
+    with _db() as con:
+        con.execute("""
+            INSERT INTO user_templates (id, template_name, doc_json, ui_json, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                template_name = excluded.template_name,
+                doc_json      = excluded.doc_json,
+                ui_json       = excluded.ui_json,
+                updated_at    = excluded.updated_at
+        """, (
+            tid,
+            settings.get("template_name", ""),
+            json.dumps(doc, ensure_ascii=False),
+            json.dumps(ui, ensure_ascii=False),
+            time.time(),
+        ))
 
 
 def _build_violation_details(violations, rule_map: dict) -> list[dict]:
@@ -338,20 +410,6 @@ def _build_template_json(settings: dict) -> dict:
     }
 
 
-def _write_user_template(tid: str, settings: dict) -> None:
-    """Persist a user template: linter rules + embedded UI state in one file."""
-    doc = _build_template_json(settings)
-    doc["id"] = tid
-    # Embed the raw UI state so Edit can round-trip the form values.
-    doc["_ui"] = {
-        "template_name": settings.get("template_name", ""),
-        "typography":    settings.get("typography", {}),
-    }
-    _user_template_path(tid).write_text(
-        json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Settings / template routes
 # ---------------------------------------------------------------------------
@@ -365,19 +423,12 @@ def settings_page():
 @app.get("/api/settings")
 def api_settings_get():
     """Return the most-recently saved user template name for the header badge."""
-    candidates = sorted(
-        USER_TEMPLATES_DIR.glob("*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for p in candidates:
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            name = data.get("template_name", "")
-            if name:
-                return jsonify({"template_name": name})
-        except Exception:
-            pass
+    with _db() as con:
+        row = con.execute(
+            "SELECT template_name FROM user_templates ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+    if row and row["template_name"]:
+        return jsonify({"template_name": row["template_name"]})
     return jsonify({})
 
 
@@ -386,14 +437,11 @@ def api_settings_get():
 
 @app.get("/api/templates")
 def api_templates_list():
-    result = []
-    for p in sorted(USER_TEMPLATES_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime):
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            result.append({"id": p.stem, "template_name": data.get("template_name", p.stem)})
-        except Exception:
-            pass
-    return jsonify(result)
+    with _db() as con:
+        rows = con.execute(
+            "SELECT id, template_name FROM user_templates ORDER BY updated_at"
+        ).fetchall()
+    return jsonify([{"id": r["id"], "template_name": r["template_name"]} for r in rows])
 
 
 @app.post("/api/templates")
@@ -412,22 +460,27 @@ def api_templates_create():
 
 @app.get("/api/templates/<tid>")
 def api_templates_get(tid: str):
-    path = _user_template_path(tid)
-    if not path.exists():
+    with _db() as con:
+        row = con.execute(
+            "SELECT template_name, ui_json FROM user_templates WHERE id = ?", (tid,)
+        ).fetchone()
+    if not row:
         return jsonify({"error": "Not found"}), 404
-    data = json.loads(path.read_text(encoding="utf-8"))
-    ui   = data.get("_ui", {})
+    ui = json.loads(row["ui_json"])
     return jsonify({
         "id":            tid,
-        "template_name": data.get("template_name", ""),
+        "template_name": row["template_name"],
         "typography":    ui.get("typography", {}),
     })
 
 
 @app.put("/api/templates/<tid>")
 def api_templates_update(tid: str):
-    path = _user_template_path(tid)
-    if not path.exists():
+    with _db() as con:
+        exists = con.execute(
+            "SELECT 1 FROM user_templates WHERE id = ?", (tid,)
+        ).fetchone()
+    if not exists:
         return jsonify({"error": "Not found"}), 404
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -438,7 +491,8 @@ def api_templates_update(tid: str):
 
 @app.delete("/api/templates/<tid>")
 def api_templates_delete(tid: str):
-    _user_template_path(tid).unlink(missing_ok=True)
+    with _db() as con:
+        con.execute("DELETE FROM user_templates WHERE id = ?", (tid,))
     return jsonify({"ok": True})
 
 
