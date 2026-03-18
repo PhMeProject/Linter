@@ -146,33 +146,21 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 /* Buttons */
 .btn-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
-  background: var(--accent); color: #fff; font: inherit; font-size: .92rem; font-weight: 500;
+  background: var(--orange); color: #fff; font: inherit; font-size: .92rem; font-weight: 500;
   padding: .7rem 1.5rem; border: none; border-radius: var(--r-sm);
   cursor: pointer; transition: background .18s; white-space: nowrap; width: 100%;
 }
-.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:hover:not(:disabled) { background: var(--orange-hover); }
 .btn-primary:disabled { opacity: .35; cursor: not-allowed; }
 
 .btn-primary-sm {
   display: inline-flex; align-items: center; gap: .35rem;
-  background: var(--accent); color: #fff; font: inherit; font-size: .82rem; font-weight: 500;
+  background: var(--orange); color: #fff; font: inherit; font-size: .82rem; font-weight: 500;
   padding: .45rem 1rem; border: none; border-radius: var(--r-sm);
   cursor: pointer; transition: background .18s; white-space: nowrap;
 }
-.btn-primary-sm:hover { background: var(--accent-hover); }
+.btn-primary-sm:hover { background: var(--orange-hover); }
 .btn-primary-sm:disabled { opacity: .35; cursor: not-allowed; }
-
-/* Orange overrides for specific branded buttons */
-#submit-btn,
-#download-btn,
-#new-template-btn {
-  background: var(--orange);
-}
-#submit-btn:hover:not(:disabled),
-#download-btn:hover,
-#new-template-btn:hover {
-  background: var(--orange-hover);
-}
 
 .btn-ghost-sm {
   display: inline-flex; align-items: center; gap: .3rem;
