@@ -304,7 +304,7 @@ function buildParaHtml(para) {
     v => !v.find && !accepted.has(acceptedKey(para.index, v.rule_id))
   );
   if (hasStyleViolations) {
-    html += `<span class="vio-badge" data-para-index="${para.index}" title="">⚠</span>`;
+    html += `<span class="vio-badge" data-para-index="${para.index}" title="">▲</span>`;
   }
 
   return html;

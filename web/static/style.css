@@ -295,24 +295,24 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 .tt-struck { text-decoration: line-through; opacity: .45; }
 .card-detail { font-size: .74rem; color: var(--text-2); line-height: 1.4; margin-bottom: .3rem; }
 
-.card-actions { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
+.card-actions { display: flex; flex-direction: row; gap: .35rem; margin-top: .5rem; }
 .card-btn {
-  width: 100%; padding: .4rem .6rem;
+  flex: 1; padding: .28rem .4rem;
   border: 1.5px solid transparent; border-radius: 6px;
-  font: inherit; font-size: .75rem; font-weight: 600;
+  font: inherit; font-size: .7rem; font-weight: 600;
   cursor: pointer; transition: filter .12s, opacity .12s;
   text-align: center;
 }
 .card-reject-btn {
-  background: rgba(255,59,48,.09); color: var(--red);
-  border-color: rgba(255,59,48,.28);
+  background: rgba(142,142,147,.15); color: #6e6e73;
+  border-color: rgba(142,142,147,.35);
 }
-.card-reject-btn:hover { background: rgba(255,59,48,.16); }
+.card-reject-btn:hover { background: rgba(142,142,147,.26); }
 .card-accept-btn {
-  background: var(--accent); color: #fff;
-  border-color: transparent;
+  background: rgba(255,159,10,.18); color: #a05c00;
+  border-color: rgba(255,159,10,.4);
 }
-.card-accept-btn:hover { filter: brightness(1.1); }
+.card-accept-btn:hover { background: rgba(255,159,10,.28); }
 
 .card-status {
   display: inline-block; font-size: .74rem; font-weight: 500;
@@ -401,7 +401,7 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .vio-mark:hover { background: rgba(255,159,10,.10); }
 
-/* Style violation badge — small ⚠ icon for whole-paragraph style issues */
+/* Style violation badge — small ▲ icon for whole-paragraph style issues */
 .vio-badge {
   display: inline-block;
   margin-left: .3em;
