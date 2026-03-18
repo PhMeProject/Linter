@@ -59,14 +59,25 @@ UPLOAD_DIR = Path("/tmp/brand_linter_sessions")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Supabase client
+# Supabase client  (lazy — initialised on first use, not at import time)
 # ---------------------------------------------------------------------------
 
-_SUPABASE_URL = os.environ["SUPABASE_URL"]
-_SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-
-_supabase: Client = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+_supabase: Client | None = None
 _TABLE = "user_templates"
+
+
+def _get_supabase() -> Client:
+    global _supabase
+    if _supabase is None:
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_KEY", "")
+        if not url or not key:
+            raise RuntimeError(
+                "SUPABASE_URL and SUPABASE_KEY environment variables are not set. "
+                "Add them in the Vercel project settings → Environment Variables."
+            )
+        _supabase = create_client(url, key)
+    return _supabase
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -138,7 +149,7 @@ _sessions: dict[str, dict] = {}
 def _load_template_list() -> list[dict[str, str]]:
     """Return [{slug, name}, …] for all saved templates, oldest first."""
     rows = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("id, template_name")
         .order("updated_at")
         .execute()
@@ -215,7 +226,7 @@ def _load_template_for_lint(slug: str):
     written to disk.  Returns (None, None) if the slug is not found.
     """
     result = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("template_name, ui_json")
         .eq("id", slug)
         .maybe_single()
@@ -246,7 +257,7 @@ def _write_user_template(tid: str, settings: dict) -> None:
         "typography":    settings.get("typography", {}),
     }
     now = datetime.now(timezone.utc).isoformat()
-    _supabase.table(_TABLE).upsert({
+    _get_supabase().table(_TABLE).upsert({
         "id":            tid,
         "template_name": settings.get("template_name", ""),
         "ui_json":       ui,
@@ -425,7 +436,7 @@ def settings_page():
 def api_settings_get():
     """Return the most-recently saved template name for the header badge."""
     result = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("template_name")
         .order("updated_at", desc=True)
         .limit(1)
@@ -442,7 +453,7 @@ def api_settings_get():
 @app.get("/api/templates")
 def api_templates_list():
     rows = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("id, template_name")
         .order("updated_at")
         .execute()
@@ -468,7 +479,7 @@ def api_templates_create():
 @app.get("/api/templates/<tid>")
 def api_templates_get(tid: str):
     result = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("template_name, ui_json")
         .eq("id", tid)
         .maybe_single()
@@ -488,7 +499,7 @@ def api_templates_get(tid: str):
 @app.put("/api/templates/<tid>")
 def api_templates_update(tid: str):
     exists = (
-        _supabase.table(_TABLE)
+        _get_supabase().table(_TABLE)
         .select("id")
         .eq("id", tid)
         .maybe_single()
@@ -505,7 +516,7 @@ def api_templates_update(tid: str):
 
 @app.delete("/api/templates/<tid>")
 def api_templates_delete(tid: str):
-    _supabase.table(_TABLE).delete().eq("id", tid).execute()
+    _get_supabase().table(_TABLE).delete().eq("id", tid).execute()
     return jsonify({"ok": True})
 
 
