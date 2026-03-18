@@ -118,16 +118,15 @@ class _InMemorySupabase:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def app(monkeypatch):
+def app():
     """Return a Flask test app with an isolated in-memory Supabase stub."""
-    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
-    monkeypatch.setenv("SUPABASE_KEY", "test-key")
-
     import importlib
     import app as app_module
     importlib.reload(app_module)
 
-    # Replace the module-level client with the in-memory stub.
+    # Inject the in-memory stub before the lazy getter is ever called.
+    # _get_supabase() checks `if _supabase is None`, so setting it here
+    # prevents any real network call.
     app_module._supabase = _InMemorySupabase()
 
     app_module.app.config["TESTING"] = True
