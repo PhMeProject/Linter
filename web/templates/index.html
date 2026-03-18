@@ -3,15 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Brand Linter</title>
-  <link rel="stylesheet" href="/static/style.css?v=17">
+  <title>Caret Check</title>
+  <link rel="stylesheet" href="/static/style.css?v=18">
 </head>
 <body>
 
   <header class="app-header">
     <div class="header-inner">
-      <div class="header-logo">&#10003;</div>
-      <span class="header-title">Brand Linter</span>
+      <div class="header-logo">
+        <svg width="14" height="12" viewBox="0 0 14 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M1.5 10.5L7 2L12.5 10.5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="header-title">Caret Check</span>
       <span id="active-ruleset-badge" class="active-ruleset-badge"{% if not templates %} hidden{% endif %}>
         <svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
         <span id="active-ruleset-name">{% if templates %}{{ templates[0].name }}{% endif %}</span>
@@ -60,7 +64,7 @@
         <div id="upload-error" class="error-banner" hidden></div>
 
         <button type="submit" id="submit-btn" class="btn-primary" disabled>
-          Upload &amp; Lint
+          Check My Document
         </button>
 
       </form>
