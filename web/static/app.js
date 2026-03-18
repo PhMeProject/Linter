@@ -650,6 +650,9 @@ function applyUnchangedVisibility() {
   document.querySelectorAll(".doc-para.unchanged").forEach(e => { e.hidden = !show; });
 }
 
+$("show-all-toggle").checked = true;
+applyUnchangedVisibility();
+
 // ---------------------------------------------------------------------------
 // Settings gear
 // ---------------------------------------------------------------------------
