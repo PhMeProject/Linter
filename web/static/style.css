@@ -162,6 +162,18 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 .btn-primary-sm:hover { background: var(--accent-hover); }
 .btn-primary-sm:disabled { opacity: .35; cursor: not-allowed; }
 
+/* Orange overrides for specific branded buttons */
+#submit-btn,
+#download-btn,
+#new-template-btn {
+  background: var(--orange);
+}
+#submit-btn:hover:not(:disabled),
+#download-btn:hover,
+#new-template-btn:hover {
+  background: var(--orange-hover);
+}
+
 .btn-ghost-sm {
   display: inline-flex; align-items: center; gap: .3rem;
   background: none; color: var(--text-2); font: inherit; font-size: .82rem;
