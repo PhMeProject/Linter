@@ -1,32 +1,134 @@
 """
-Tests for the Flask API routes and SQLite template persistence.
+Tests for the Flask API routes and Supabase-backed template persistence.
+
+The Supabase client is replaced with an in-memory stub so no network calls
+are made during the test suite.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import sqlite3
-import tempfile
+import re
+import uuid
 from pathlib import Path
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# In-memory Supabase stub
+# ---------------------------------------------------------------------------
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _TableQuery:
+    """Minimal fluent builder that mirrors the supabase-py query API."""
+
+    def __init__(self, rows: list):
+        self._rows = rows          # reference to shared list (mutated in-place)
+        self._filters: list[tuple] = []
+        self._order_col = None
+        self._order_desc = False
+        self._limit_val = None
+        self._is_maybe_single = False
+        self._op = "select"
+        self._upsert_row = None
+
+    def select(self, *args, **kwargs) -> "_TableQuery":
+        self._op = "select"
+        return self
+
+    def order(self, col, desc=False) -> "_TableQuery":
+        self._order_col = col
+        self._order_desc = desc
+        return self
+
+    def eq(self, col, val) -> "_TableQuery":
+        self._filters.append((col, val))
+        return self
+
+    def limit(self, n) -> "_TableQuery":
+        self._limit_val = n
+        return self
+
+    def maybe_single(self) -> "_TableQuery":
+        self._is_maybe_single = True
+        return self
+
+    def upsert(self, row: dict) -> "_TableQuery":
+        self._op = "upsert"
+        self._upsert_row = dict(row)
+        return self
+
+    def delete(self) -> "_TableQuery":
+        self._op = "delete"
+        return self
+
+    def _filtered(self) -> list:
+        data = list(self._rows)
+        for col, val in self._filters:
+            data = [r for r in data if r.get(col) == val]
+        return data
+
+    def execute(self) -> _Result:
+        if self._op == "upsert":
+            row = self._upsert_row
+            self._rows[:] = [r for r in self._rows if r.get("id") != row.get("id")]
+            self._rows.append(row)
+            return _Result([row])
+
+        if self._op == "delete":
+            ids = {r.get("id") for r in self._filtered()}
+            self._rows[:] = [r for r in self._rows if r.get("id") not in ids]
+            return _Result([])
+
+        # select
+        data = self._filtered()
+        if self._order_col:
+            data = sorted(
+                data,
+                key=lambda r: (r.get(self._order_col) or ""),
+                reverse=self._order_desc,
+            )
+        if self._limit_val is not None:
+            data = data[: self._limit_val]
+        if self._is_maybe_single:
+            return _Result(data[0] if data else None)
+        return _Result(data)
+
+
+class _InMemorySupabase:
+    """Drop-in replacement for the supabase.Client in tests."""
+
+    def __init__(self):
+        self._tables: dict[str, list] = {}
+
+    def table(self, name: str) -> _TableQuery:
+        if name not in self._tables:
+            self._tables[name] = []
+        return _TableQuery(self._tables[name])
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def app(tmp_path, monkeypatch):
-    """Return a Flask test app wired to an isolated in-memory SQLite DB."""
-    # Point DATABASE_PATH at a temp file so tests never touch the real DB.
-    db_file = tmp_path / "test.db"
-    monkeypatch.setenv("DATABASE_PATH", str(db_file))
+def app(monkeypatch):
+    """Return a Flask test app with an isolated in-memory Supabase stub."""
+    monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
 
-    # Re-import app so _resolve_db_path() picks up the env var.
     import importlib
     import app as app_module
     importlib.reload(app_module)
+
+    # Replace the module-level client with the in-memory stub.
+    app_module._supabase = _InMemorySupabase()
 
     app_module.app.config["TESTING"] = True
     return app_module.app
@@ -70,7 +172,6 @@ class TestCreateTemplate:
         r = client.post("/api/templates",
                         data=json.dumps(_payload()),
                         content_type="application/json")
-        import re
         assert re.fullmatch(
             r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
             r.get_json()["id"]
@@ -251,27 +352,15 @@ class TestApiSettings:
 
 
 # ---------------------------------------------------------------------------
-# Persistence – data survives a simulated restart (same DB file, new app)
+# Persistence – data survives within a session (shared Supabase store)
 # ---------------------------------------------------------------------------
 
 class TestPersistence:
-    def test_templates_survive_reload(self, tmp_path, monkeypatch):
-        db_file = tmp_path / "persist.db"
-        monkeypatch.setenv("DATABASE_PATH", str(db_file))
-
-        import importlib, app as app_module
-
-        # First "boot" – create a template.
-        importlib.reload(app_module)
-        with app_module.app.test_client() as c:
-            c.post("/api/templates", content_type="application/json",
-                   data=json.dumps(_payload("Persistent Corp")))
-
-        # Second "boot" – reload the module (simulates restart with same DB).
-        importlib.reload(app_module)
-        with app_module.app.test_client() as c:
-            items = c.get("/api/templates").get_json()
-
+    def test_templates_survive_across_requests(self, client):
+        """Data written in one request is visible in a subsequent request."""
+        client.post("/api/templates", content_type="application/json",
+                    data=json.dumps(_payload("Persistent Corp")))
+        items = client.get("/api/templates").get_json()
         assert len(items) == 1
         assert items[0]["template_name"] == "Persistent Corp"
 
@@ -283,7 +372,8 @@ class TestPersistence:
 class TestBuildTemplateJson:
     @pytest.fixture(autouse=True)
     def _import(self, app):
-        import importlib, app as app_module
+        import importlib
+        import app as app_module
         self.build = app_module._build_template_json
 
     def test_default_values_produce_no_rules(self):
@@ -340,7 +430,6 @@ class TestHomePage:
         html = r.get_data(as_text=True)
         assert "No templates saved yet" in html
         assert 'href="/settings"' in html
-        # No <select> rendered when list is empty
         assert 'id="template-select"' not in html
 
     def test_user_templates_appear_in_dropdown(self, client):
@@ -350,7 +439,6 @@ class TestHomePage:
         html = r.get_data(as_text=True)
         assert "Acme Brand" in html
         assert 'id="template-select"' in html
-        # Bundled demo templates must not appear
         assert "Newsletter" not in html
 
     def test_multiple_user_templates_all_listed(self, client):
@@ -371,7 +459,6 @@ class TestLintWithUserTemplate:
     """Verify the full save-then-lint flow works end-to-end."""
 
     def _make_minimal_docx(self, tmp_path: Path) -> Path:
-        """Create a tiny valid .docx to upload."""
         from docx import Document
         doc = Document()
         doc.add_paragraph("Hello world", style="Normal")
@@ -380,7 +467,6 @@ class TestLintWithUserTemplate:
         return p
 
     def test_lint_with_user_template_returns_200(self, client, tmp_path):
-        # Create a template with an H1 Arial rule
         r = client.post("/api/templates", content_type="application/json",
                         data=json.dumps(_payload("Corp Brand", h1={
                             "font_family": "Arial", "font_size": 14,
