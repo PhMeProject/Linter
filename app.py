@@ -71,6 +71,12 @@ def _get_supabase() -> Client:
     if _supabase is None:
         url = os.environ.get("SUPABASE_URL", "")
         key = os.environ.get("SUPABASE_KEY", "")
+        # --- TEMPORARY STARTUP DIAGNOSTICS (remove after confirming env vars) ---
+        print("[DIAG] SUPABASE_URL present:", bool(url), flush=True)
+        print("[DIAG] SUPABASE_KEY present:", bool(key), flush=True)
+        print("[DIAG] SUPABASE_URL value:", url or "(not set)", flush=True)
+        print("[DIAG] SUPABASE_KEY prefix:", (key[:8] + "...") if key else "(not set)", flush=True)
+        # --- END DIAGNOSTICS ---
         if not url or not key:
             raise RuntimeError(
                 "SUPABASE_URL and SUPABASE_KEY environment variables are not set. "
