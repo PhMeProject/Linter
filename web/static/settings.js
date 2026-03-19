@@ -4,7 +4,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const SECTIONS = ["h1", "body", "captions"];
+const SECTIONS = ["h1", "h2", "body", "captions"];
 
 const DEFAULTS = {
   font_family: "Calibri",
