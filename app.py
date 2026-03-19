@@ -139,6 +139,7 @@ _TYPO_DEFAULTS = {
 # Maps settings section key → Word paragraph style name
 _STYLE_NAMES = {
     "h1":       "Heading 1",
+    "h2":       "Heading 2",
     "body":     "Normal",
     "captions": "Caption",
 }
