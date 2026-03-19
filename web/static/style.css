@@ -333,9 +333,9 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
   background: rgba(0,113,227,.22) !important;
   outline: 2px solid rgba(0,113,227,.55); outline-offset: 1px;
 }
-.vio-mark.active-change {
-  background: rgba(255,159,10,.22) !important;
-  outline: 2px solid rgba(255,159,10,.6); outline-offset: 1px;
+.flagged-word.active-change {
+  background: rgba(242,140,69,.35) !important;
+  outline: 2px solid rgba(240,104,32,.6); outline-offset: 1px;
 }
 .doc-para.para-highlight {
   background: rgba(255,159,10,.07); border-radius: 2px;
@@ -388,18 +388,39 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .change-mark.accepted:hover { background: rgba(52,199,89,.22); }
 
-/* Prohibited term — amber wavy underline on the specific word */
-.vio-mark {
-  text-decoration-line: underline;
-  text-decoration-style: wavy;
-  text-decoration-color: rgba(255,159,10,.85);
-  text-decoration-skip-ink: none;
+/* Prohibited term — light orange highlight with caret indicator */
+.flagged-word {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  background-color: #F9E1D2;
+  border-radius: 6px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-left: 6px;
+  padding-right: 4px;
+  margin-left: 1px;
+  margin-right: 1px;
+  vertical-align: baseline;
+  line-height: 1;
   cursor: help;
-  border-radius: 2px;
-  padding: 0 1px;
-  transition: background .12s;
 }
-.vio-mark:hover { background: rgba(255,159,10,.10); }
+
+.flag-text {
+  /* inherits font from parent; no extra styling needed */
+}
+
+.flag-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #f06820;
+  margin-left: 2px;
+  position: relative;
+  top: -3px;
+  flex-shrink: 0;
+}
 
 /* Style violation badge — small ▲ icon for whole-paragraph style issues */
 .vio-badge {

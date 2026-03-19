@@ -295,7 +295,7 @@ function buildParaHtml(para) {
     const ri = escapeHtml(seg.ruleId);
     if (seg.type === "pending")   return `<span class="change-mark pending"  data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
     if (seg.type === "accepted")  return `<span class="change-mark accepted" data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
-    if (seg.type === "violation") return `<span class="vio-mark" data-para-index="${pi}" data-rule-id="${ri}">${t}</span>`;
+    if (seg.type === "violation") return `<span class="flagged-word" data-para-index="${pi}" data-rule-id="${ri}"><span class="flag-text">${t}</span><span class="flag-caret"></span></span>`;
     return t;
   }).join("");
 
@@ -513,7 +513,7 @@ function refreshCard(paraIndex, ruleId) {
 function activateCard(paraIndex, ruleId, cardType) {
   // Clear previous active state
   if (_activeCard) _activeCard.classList.remove("active");
-  document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
+  document.querySelectorAll(".change-mark.active-change, .flagged-word.active-change")
     .forEach(s => s.classList.remove("active-change"));
   document.querySelectorAll(".doc-para.para-highlight")
     .forEach(s => s.classList.remove("para-highlight"));
@@ -532,7 +532,7 @@ function activateCard(paraIndex, ruleId, cardType) {
     docPara.querySelectorAll(".change-mark")
       .forEach(s => { if (s.dataset.ruleId === ruleId) s.classList.add("active-change"); });
   } else if (cardType === "violation") {
-    docPara.querySelectorAll(".vio-mark")
+    docPara.querySelectorAll(".flagged-word")
       .forEach(s => { if (s.dataset.ruleId === ruleId) s.classList.add("active-change"); });
   } else {
     docPara.classList.add("para-highlight");
@@ -558,7 +558,7 @@ window.acceptChange = function(paraIndex, ruleId) {
   accepted.set(acceptedKey(paraIndex, ruleId), true);
   refreshPara(paraIndex);
   refreshCard(paraIndex, ruleId);
-  document.querySelectorAll(".change-mark.active-change, .vio-mark.active-change")
+  document.querySelectorAll(".change-mark.active-change, .flagged-word.active-change")
     .forEach(s => s.classList.remove("active-change"));
   flashPara(paraIndex);
 };
